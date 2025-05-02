@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "electrum_streaming_client"
-version = "0.2.0"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-std",
