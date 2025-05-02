@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 mod batch_request;
 mod client;
 pub use client::*;
