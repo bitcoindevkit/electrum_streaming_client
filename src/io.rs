@@ -1,3 +1,8 @@
+//! Low-level I/O utilities for reading and writing Electrum JSON-RPC messages.
+//!
+//! This module provides core types and functions for serializing and deserializing Electrum
+//! messages—including requests, responses, and notifications—over arbitrary transports.
+
 use std::{
     collections::VecDeque,
     pin::Pin,
@@ -6,6 +11,54 @@ use std::{
 
 use crate::{MaybeBatch, RawNotificationOrResponse, RawRequest};
 
+/// A streaming parser for Electrum JSON-RPC messages from an input reader.
+///
+/// `ReadStreamer` incrementally reads from a source implementing [`std::io::BufRead`] or
+/// [`futures::io::AsyncBufRead`] (depending on the API used), parses incoming JSON-RPC payloads, and
+/// queues deserialized [`RawNotificationOrResponse`] items for consumption.
+///
+/// ### Behavior
+///
+/// - For **blocking transports**, `ReadStreamer` implements [`Iterator`], yielding one
+///   [`RawNotificationOrResponse`] at a time.
+/// - For **async transports**, `ReadStreamer` implements [`futures::Stream`], with the same item
+///   type.
+///
+/// ### Examples
+///
+/// **Blocking I/O**
+///
+/// ```rust
+/// use electrum_streaming_client::io::ReadStreamer;
+/// use std::io::BufReader;
+///
+/// let json_lines = b"{\"jsonrpc\":\"2.0\",\"method\":\"blockchain.headers.subscribe\",\"params\":[]}\n";
+/// let reader = BufReader::new(&json_lines[..]);
+/// let mut streamer = ReadStreamer::new(reader);
+///
+/// for msg in streamer {
+///     println!("Got message: {:?}", msg);
+/// }
+/// ```
+///
+/// **Async I/O**
+///
+/// ```rust
+/// use electrum_streaming_client::io::ReadStreamer;
+/// use futures::executor::block_on;
+/// use futures::stream::StreamExt;
+/// use futures::io::Cursor;
+///
+/// let json_lines = b"{\"jsonrpc\":\"2.0\",\"method\":\"blockchain.headers.subscribe\",\"params\":[]}\n";
+/// let reader = Cursor::new(&json_lines[..]);
+/// let mut streamer = ReadStreamer::new(reader);
+///
+/// block_on(async {
+///     while let Some(msg) = streamer.next().await {
+///         println!("Got message: {:?}", msg);
+///     }
+/// });
+/// ```
 #[derive(Debug)]
 pub struct ReadStreamer<R> {
     reader: Option<R>,
@@ -15,6 +68,10 @@ pub struct ReadStreamer<R> {
 }
 
 impl<R> ReadStreamer<R> {
+    /// Creates a new `ReadStreamer` with the given reader.
+    ///
+    /// This does not begin reading immediately; call `.next()` (blocking or async) to start
+    /// processing messages.
     pub fn new(reader: R) -> Self {
         Self {
             reader: Some(reader),
@@ -101,6 +158,19 @@ impl<R: futures::AsyncBufRead + Unpin> futures::Stream for ReadStreamer<R> {
     }
 }
 
+/// Writes a JSON-RPC request or batch to a blocking writer, followed by a newline.
+///
+/// The message is serialized using `serde_json` and written as a single line,
+/// terminated by `\n`, to comply with Electrum's line-delimited JSON-RPC protocol.
+///
+/// Returns an error if writing to the underlying writer fails.
+///
+/// # Parameters
+/// - `writer`: A blocking writer implementing [`std::io::Write`].
+/// - `msg`: A single or batched [`RawRequest`] to be serialized.
+///
+/// # Errors
+/// Returns a [`std::io::Error`] if the write operation fails.
 pub fn blocking_write<W, T>(mut writer: W, msg: T) -> std::io::Result<()>
 where
     T: Into<MaybeBatch<RawRequest>>,
@@ -111,6 +181,17 @@ where
     writer.write_all(&b)
 }
 
+/// Asynchronously writes a JSON-RPC request or batch to an async writer, followed by a newline.
+///
+/// The message is serialized using `serde_json` and written as a single line terminated by `\n`,
+/// following Electrum's line-delimited JSON-RPC protocol.
+///
+/// # Parameters
+/// - `writer`: An async writer implementing [`futures::io::AsyncWrite`] + [`Unpin`].
+/// - `msg`: A single or batched [`RawRequest`] to be serialized.
+///
+/// # Errors
+/// Returns a [`std::io::Error`] if the async write operation fails.
 pub async fn async_write<W, T>(mut writer: W, msg: T) -> std::io::Result<()>
 where
     T: Into<MaybeBatch<RawRequest>>,

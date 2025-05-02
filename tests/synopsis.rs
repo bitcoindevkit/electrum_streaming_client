@@ -3,7 +3,7 @@ use std::time::Duration;
 use async_std::{net::TcpStream, stream::StreamExt};
 use bdk_testenv::{anyhow, bitcoincore_rpc::RpcApi, TestEnv};
 use bitcoin::Amount;
-use electrum_streaming::{
+use electrum_streaming_client::{
     notification::Notification, request, AsyncClient, Event, SatisfiedRequest,
 };
 use futures::{
@@ -95,7 +95,7 @@ fn synopsis() -> anyhow::Result<()> {
         )?;
         env.wait_until_electrum_sees_txid(txid, Duration::from_secs(10))?;
 
-        let tx_resp = client.send_request(request::GetTx(txid)).await?;
+        let tx_resp = client.send_request(request::GetTx { txid }).await?;
         println!("GOT TX: {:?}", tx_resp);
         println!(
             "BROADCAST RESULT: {}",

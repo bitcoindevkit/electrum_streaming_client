@@ -1,5 +1,5 @@
 [package]
-name = "electrum_streaming"
+name = "electrum_streaming_client"
 version = "0.2.0"
 description = "Experimental but sane electrum client by @evanlinjin."
 license = "MIT OR Apache-2.0"
