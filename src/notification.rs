@@ -88,7 +88,7 @@ impl HeaderNotification {
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ScriptHashNotification {
     param_0: ElectrumScriptHash,
-    param_1: ElectrumScriptStatus,
+    param_1: Option<ElectrumScriptStatus>,
 }
 
 impl ScriptHashNotification {
@@ -98,7 +98,7 @@ impl ScriptHashNotification {
     }
 
     /// Returns the new script status associated with the script hash.
-    pub fn script_status(&self) -> ElectrumScriptStatus {
+    pub fn script_status(&self) -> Option<ElectrumScriptStatus> {
         self.param_1
     }
 }

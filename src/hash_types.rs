@@ -33,9 +33,23 @@ impl ElectrumScriptHash {
     ///
     /// This is the standard way to obtain a script hash for use with Electrum server methods like
     /// `blockchain.scripthash.get_balance` or `blockchain.scripthash.subscribe`.
-    pub fn new(script: &bitcoin::Script) -> Self {
+    pub fn new(script: impl AsRef<bitcoin::Script>) -> Self {
         use bitcoin::hashes::Hash;
 
-        ElectrumScriptHash(bitcoin::hashes::sha256::Hash::hash(script.as_bytes()))
+        ElectrumScriptHash(bitcoin::hashes::sha256::Hash::hash(
+            script.as_ref().as_bytes(),
+        ))
+    }
+}
+
+impl From<bitcoin::ScriptBuf> for ElectrumScriptHash {
+    fn from(value: bitcoin::ScriptBuf) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&bitcoin::Script> for ElectrumScriptHash {
+    fn from(value: &bitcoin::Script) -> Self {
+        Self::new(value)
     }
 }
