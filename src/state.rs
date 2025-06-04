@@ -58,21 +58,28 @@ impl Event {
 /// Use [`State::process_incoming`] to handle messages received from the server. It updates internal
 /// state as needed and may return an [`Event`] representing a notification or a response to a
 /// previously tracked request.
+#[derive(Debug)]
 pub struct State<PReq: PendingRequest> {
-    next_id: usize,
     pending: HashMap<usize, PReq>,
 }
 
+impl<PReq: PendingRequest> Default for State<PReq> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<PReq: PendingRequest> State<PReq> {
-    /// Creates a new [`State`] instance with the given starting request ID.
-    ///
-    /// The `next_id` is used to assign unique IDs to requests tracked via [`State::track_request`].
-    /// Typically, you can start with `0` unless continuing from a previously used ID space.
-    pub fn new(next_id: usize) -> Self {
+    /// Creates a new [`State`] instance.
+    pub fn new() -> Self {
         Self {
-            next_id,
             pending: HashMap::new(),
         }
+    }
+
+    /// Clears all pending requests.
+    pub fn clear(&mut self) {
+        self.pending.clear();
     }
 
     /// Returns an iterator over all pending requests that have been registered with
@@ -90,27 +97,31 @@ impl<PReq: PendingRequest> State<PReq> {
     /// Registers a new request (or batch of requests) and returns the corresponding [`RawRequest`]
     /// or batch of [`RawRequest`]s to be sent to the Electrum server.
     ///
-    /// Each request is assigned a unique ID and stored internally until a matching response is
-    /// received via [`State::process_incoming`].
+    /// Each request is assigned a unique ID (via `next_id`) and stored internally until a matching
+    /// response is received via [`State::process_incoming`].
     ///
     /// Returns a [`MaybeBatch<RawRequest>`], preserving whether the input was a single request or a
     /// batch.
-    pub fn track_request<R>(&mut self, req: R) -> MaybeBatch<RawRequest>
+    pub fn track_request<R>(&mut self, next_id: &mut usize, req: R) -> MaybeBatch<RawRequest>
     where
         R: Into<MaybeBatch<PReq>>,
     {
-        fn _add_request<PReq: PendingRequest>(state: &mut State<PReq>, req: PReq) -> RawRequest {
-            let id = state.next_id;
-            state.next_id = id + 1;
+        fn _add_request<PReq: PendingRequest>(
+            state: &mut State<PReq>,
+            next_id: &mut usize,
+            req: PReq,
+        ) -> RawRequest {
+            let id = *next_id;
+            *next_id = id.wrapping_add(1);
             let (method, params) = req.to_method_and_params();
             state.pending.insert(id, req);
             RawRequest::new(id, method, params)
         }
         match req.into() {
-            MaybeBatch::Single(req) => _add_request(self, req).into(),
+            MaybeBatch::Single(req) => _add_request(self, next_id, req).into(),
             MaybeBatch::Batch(v) => v
                 .into_iter()
-                .map(|req| _add_request(self, req))
+                .map(|req| _add_request(self, next_id, req))
                 .collect::<Vec<_>>()
                 .into(),
         }

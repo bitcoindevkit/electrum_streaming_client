@@ -46,7 +46,7 @@ pub trait Request: Clone {
 /// server methods.
 ///
 /// The response is returned as a generic `serde_json::Value`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Custom {
     /// The JSON-RPC method name to call.
     pub method: CowStr,
@@ -103,7 +103,7 @@ impl<SendError: std::error::Error> std::error::Error for Error<SendError> {}
 /// without downloading intermediate headers—use [`HeaderWithProof`] instead.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-block-header>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Header {
     /// The height of the block to fetch.
     pub height: u32,
@@ -132,7 +132,7 @@ impl Request for Header {
 /// If no proof is required, consider using the [`Header`] type instead.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-block-header>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HeaderWithProof {
     /// The height of the block whose header is being requested.
     pub height: u32,
@@ -161,7 +161,7 @@ impl Request for HeaderWithProof {
 /// period).
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-block-headers>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Headers {
     /// The height of the first block header to fetch.
     pub start_height: u32,
@@ -191,7 +191,7 @@ impl Request for Headers {
 /// Most Electrum servers cap the maximum `count` at 2016 headers per request.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-block-headers>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HeadersWithCheckpoint {
     /// The height of the first block header to fetch.
     pub start_height: u32,
@@ -224,7 +224,7 @@ impl Request for HeadersWithCheckpoint {
 /// fee rate (in BTC per kilobyte) required to be included within the specified number of blocks.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-estimatefee>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EstimateFee {
     /// The number of blocks to target for confirmation.
     pub number: usize,
@@ -244,7 +244,7 @@ impl Request for EstimateFee {
 /// the server will push a notification whenever a new block is added to the chain tip.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-headers-subscribe>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HeadersSubscribe;
 
 impl Request for HeadersSubscribe {
@@ -261,7 +261,7 @@ impl Request for HeadersSubscribe {
 /// fee rate (in BTC per kilobyte) that the server will accept for relaying transactions.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#server-relayfee>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RelayFee;
 
 impl Request for RelayFee {
@@ -279,7 +279,7 @@ impl Request for RelayFee {
 /// transactions) for the provided script hash.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-scripthash-get-balance>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GetBalance {
     /// The script hash to query.
     pub script_hash: ElectrumScriptHash,
@@ -314,7 +314,7 @@ impl Request for GetBalance {
 /// does not include unconfirmed transactions.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-scripthash-get-history>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GetHistory {
     /// The script hash whose history should be fetched.
     pub script_hash: ElectrumScriptHash,
@@ -345,7 +345,7 @@ impl Request for GetHistory {
 /// Resource request for `blockchain.scripthash.get_mempool`.
 ///
 /// Note that `electrs` does not support this endpoint.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GetMempool {
     pub script_hash: ElectrumScriptHash,
 }
@@ -380,7 +380,7 @@ impl Request for GetMempool {
 /// value, height, and outpoint.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-scripthash-listunspent>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ListUnspent {
     /// The script hash to query.
     pub script_hash: ElectrumScriptHash,
@@ -415,7 +415,7 @@ impl Request for ListUnspent {
 /// a new transaction is confirmed or enters the mempool.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-scripthash-subscribe>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScriptHashSubscribe {
     /// The script hash to subscribe to.
     pub script_hash: ElectrumScriptHash,
@@ -444,13 +444,13 @@ impl Request for ScriptHashSubscribe {
     }
 }
 
-#[derive(Debug, Clone)]
 /// A request to cancel a previous subscription to a script hash.
 ///
 /// This corresponds to the `"blockchain.scripthash.unsubscribe"` Electrum RPC method. It tells the
 /// server to stop sending notifications related to the specified script hash.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-scripthash-unsubscribe>
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScriptHashUnsubscribe {
     /// The script hash to unsubscribe from.
     pub script_hash: ElectrumScriptHash,
@@ -485,7 +485,7 @@ impl Request for ScriptHashUnsubscribe {
 /// the given transaction to the Electrum server's mempool.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-transaction-broadcast>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BroadcastTx(pub bitcoin::Transaction);
 
 impl Request for BroadcastTx {
@@ -501,13 +501,13 @@ impl Request for BroadcastTx {
     }
 }
 
-#[derive(Debug, Clone)]
 /// A request for the raw transaction corresponding to a given transaction ID.
 ///
 /// This corresponds to the `"blockchain.transaction.get"` Electrum RPC method. It returns the full
 /// transaction as a serialized hex string, typically used to inspect, rebroadcast, or verify it.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-transaction-get>
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GetTx {
     /// The transaction ID to fetch.
     pub txid: Txid,
@@ -530,7 +530,7 @@ impl Request for GetTx {
 /// the Merkle branch proving that the transaction is included in the block at the specified height.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-transaction-get-merkle>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GetTxMerkle {
     /// The transaction ID to verify.
     pub txid: Txid,
@@ -558,7 +558,7 @@ impl Request for GetTxMerkle {
 /// This can be used for enumerating all transactions in a block by querying sequential positions.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-transaction-id-from-pos>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GetTxidFromPos {
     /// The height of the block containing the transaction.
     pub height: u32,
@@ -585,7 +585,7 @@ impl Request for GetTxidFromPos {
 /// allowing clients to estimate the mempool's fee landscape.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#mempool-get-fee-histogram>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GetFeeHistogram;
 
 impl Request for GetFeeHistogram {
@@ -602,7 +602,7 @@ impl Request for GetFeeHistogram {
 /// banner string, often used to display terms of service or notices to the user.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#server-banner>
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Banner;
 
 impl Request for Banner {
@@ -619,7 +619,7 @@ impl Request for Banner {
 /// `null`. It's used to keep the connection alive or measure basic liveness.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#server-ping>
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Ping;
 
 impl Request for Ping {
