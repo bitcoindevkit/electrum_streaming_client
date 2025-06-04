@@ -67,14 +67,15 @@ impl AsyncClient {
 
         let mut incoming_stream =
             crate::io::ReadStreamer::new(futures::io::BufReader::new(reader)).fuse();
-        let mut state = State::<AsyncPendingRequest>::new(0);
+        let mut state = State::<AsyncPendingRequest>::new();
+        let mut next_id = 0_usize;
 
         let fut = async move {
             loop {
                 futures::select! {
                     req_opt = req_recv.next() => match req_opt {
                         Some(req) => {
-                            let raw_req = state.track_request(req);
+                            let raw_req = state.track_request(&mut next_id, req);
                             crate::io::async_write(&mut writer, raw_req).await?;
                         },
                         None => break,
@@ -132,6 +133,11 @@ impl AsyncClient {
     {
         use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
         Self::new(reader.compat(), writer.compat_write())
+    }
+
+    /// Close the channel.
+    pub fn close(&self) {
+        self.tx.close_channel();
     }
 
     /// Sends a single tracked request to the Electrum server and awaits the response.
@@ -282,9 +288,8 @@ impl BlockingClient {
         let (event_tx, event_recv) = channel::<Event>();
         let (req_tx, req_recv) = channel::<MaybeBatch<BlockingPendingRequest>>();
         let incoming_stream = crate::io::ReadStreamer::new(std::io::BufReader::new(reader));
-        let read_state = std::sync::Arc::new(std::sync::Mutex::new(
-            State::<BlockingPendingRequest>::new(0),
-        ));
+        let read_state =
+            std::sync::Arc::new(std::sync::Mutex::new(State::<BlockingPendingRequest>::new()));
         let write_state = std::sync::Arc::clone(&read_state);
 
         let read_join = std::thread::spawn(move || -> std::io::Result<()> {
@@ -303,8 +308,9 @@ impl BlockingClient {
             Ok(())
         });
         let write_join = std::thread::spawn(move || -> std::io::Result<()> {
+            let mut next_id = 0_usize;
             for req in req_recv {
-                let raw_req = write_state.lock().unwrap().track_request(req);
+                let raw_req = write_state.lock().unwrap().track_request(&mut next_id, req);
                 crate::io::blocking_write(&mut writer, raw_req)?;
             }
             Ok(())

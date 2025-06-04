@@ -202,3 +202,18 @@ where
     b.push(b'\n');
     writer.write_all(&b).await
 }
+
+/// Asynchronously writes a JSON-RPC request or batch to a tokio async writer, followed by a newline.
+///
+/// This is the `"tokio"` version of [`async_write`].
+#[cfg(feature = "tokio")]
+pub async fn tokio_write<W, T>(mut writer: W, msg: T) -> std::io::Result<()>
+where
+    T: Into<MaybeBatch<RawRequest>>,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::io::AsyncWriteExt;
+    let mut b = serde_json::to_vec(&msg.into()).expect("must serialize");
+    b.push(b'\n');
+    writer.write_all(&b).await
+}

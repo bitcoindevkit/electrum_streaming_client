@@ -1,3 +1,5 @@
+use bitcoin::hashes::{Hash, HashEngine};
+
 bitcoin::hashes::hash_newtype! {
     /// A script hash used by Electrum to identify wallet outputs.
     ///
@@ -51,5 +53,20 @@ impl From<bitcoin::ScriptBuf> for ElectrumScriptHash {
 impl From<&bitcoin::Script> for ElectrumScriptHash {
     fn from(value: &bitcoin::Script) -> Self {
         Self::new(value)
+    }
+}
+
+impl ElectrumScriptStatus {
+    pub fn from_history(history: &[crate::response::Tx]) -> Option<Self> {
+        if history.is_empty() {
+            return None;
+        }
+
+        let mut engine = bitcoin::hashes::sha256::Hash::engine();
+        for tx in history {
+            let s = format!("{}:{}:", tx.txid(), tx.electrum_height());
+            engine.input(s.as_bytes());
+        }
+        Some(Self::from_engine(engine))
     }
 }

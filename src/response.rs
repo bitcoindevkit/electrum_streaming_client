@@ -140,6 +140,20 @@ impl Tx {
             Tx::Confirmed(ConfirmedTx { height, .. }) => Some(*height),
         }
     }
+
+    /// Returns the transaction height as represented by the Electrum API.
+    ///
+    /// * Confirmed transactions have a height > 0.
+    /// * Unconfirmed transactions either have a height of 0 or -1.
+    ///   * 0 means transaction inputs are all confirmed.
+    ///   * -1 means not all transaction inputs are confirmed.
+    pub fn electrum_height(&self) -> i64 {
+        match self {
+            Tx::Mempool(mempool_tx) if mempool_tx.confirmed_inputs => 0,
+            Tx::Mempool(_) => -1,
+            Tx::Confirmed(confirmed_tx) => confirmed_tx.height.to_consensus_u32() as i64,
+        }
+    }
 }
 
 /// A confirmed transaction entry returned by `"blockchain.scripthash.get_history"`.
