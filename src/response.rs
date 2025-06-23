@@ -4,10 +4,12 @@
 //! Electrum JSON-RPC methods. These types are used to decode responses for specific request types
 //! defined in the [`crate::request`] module.
 
+use std::collections::HashMap;
+
 use bitcoin::{
     absolute,
     hashes::{Hash, HashEngine},
-    Amount,
+    Amount, BlockHash,
 };
 
 use crate::DoubleSHA;
@@ -277,4 +279,42 @@ pub struct FeePair {
     /// The total weight (in vbytes) of transactions at or above this fee rate.
     #[serde(deserialize_with = "crate::custom_serde::weight_from_vb")]
     pub weight: bitcoin::Weight,
+}
+
+/// Response to the `"server.features"` method.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ServerFeatures {
+    /// Hosts.
+    pub hosts: HashMap<String, ServerHostValues>,
+
+    /// The hash of the genesis block.
+    ///
+    ///  This is used to detect if a peer is connected to one serving a different network.
+    pub genesis_hash: BlockHash,
+
+    /// The hash function the server uses for script hashing.
+    ///
+    /// The default is `"sha-256"`.
+    pub hash_function: String,
+
+    /// A string that identifies the server software.
+    pub server_version: String,
+
+    /// The max protocol version.
+    pub protocol_max: String,
+
+    /// The min protocol version.
+    pub protocol_min: String,
+
+    /// The pruning limit.
+    pub pruning: Option<u32>,
+}
+
+/// Server host values.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ServerHostValues {
+    /// SSL Port.
+    pub ssl_port: Option<u16>,
+    /// TCP Port.
+    pub tcp_port: Option<u16>,
 }

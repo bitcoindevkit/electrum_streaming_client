@@ -19,7 +19,8 @@
 use bitcoin::{consensus::Encodable, hex::DisplayHex, Script, Txid};
 
 use crate::{
-    response, CowStr, ElectrumScriptHash, ElectrumScriptStatus, MethodAndParams, ResponseError,
+    response, CowStr, ElectrumScriptHash, ElectrumScriptStatus, MethodAndParams, RawRequest,
+    ResponseError,
 };
 
 /// A trait representing a typed Electrum JSON-RPC request.
@@ -37,6 +38,16 @@ pub trait Request: Clone {
     ///
     /// This is used to construct the raw JSON-RPC payload.
     fn to_method_and_params(&self) -> MethodAndParams;
+}
+
+impl<Req> From<(u32, Req)> for RawRequest
+where
+    Req: Request,
+{
+    fn from((id, req): (u32, Req)) -> Self {
+        let (method, params) = req.to_method_and_params();
+        RawRequest::new(id, method, params)
+    }
 }
 
 /// A dynamically constructed request for arbitrary Electrum methods.
@@ -610,6 +621,22 @@ impl Request for Banner {
 
     fn to_method_and_params(&self) -> MethodAndParams {
         ("server.banner".into(), vec![])
+    }
+}
+
+/// A request to return a list of features and services supported by the server.
+///
+/// This corresponds to the `"server.features"` Electrum RPC method.
+///
+/// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#server-features>
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Features;
+
+impl Request for Features {
+    type Response = response::ServerFeatures;
+
+    fn to_method_and_params(&self) -> MethodAndParams {
+        ("server.features".into(), vec![])
     }
 }
 

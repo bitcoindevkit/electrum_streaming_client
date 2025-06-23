@@ -14,6 +14,7 @@ pub use batch_request::*;
 pub use hash_types::*;
 pub use pending_request::*;
 pub use request::Request;
+pub use serde_json;
 use serde_json::Value;
 pub use state::*;
 use std::fmt::Display;
@@ -234,6 +235,10 @@ impl RawRequest {
             method,
             params,
         }
+    }
+
+    pub fn from_request<Req: Request>(id: u32, req: Req) -> Self {
+        (id, req).into()
     }
 }
 
