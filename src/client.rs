@@ -68,7 +68,7 @@ impl AsyncClient {
         let mut incoming_stream =
             crate::io::ReadStreamer::new(futures::io::BufReader::new(reader)).fuse();
         let mut state = State::<AsyncPendingRequest>::new();
-        let mut next_id = 0_usize;
+        let mut next_id = 0_u32;
 
         let fut = async move {
             loop {
@@ -308,7 +308,7 @@ impl BlockingClient {
             Ok(())
         });
         let write_join = std::thread::spawn(move || -> std::io::Result<()> {
-            let mut next_id = 0_usize;
+            let mut next_id = 0_u32;
             for req in req_recv {
                 let raw_req = write_state.lock().unwrap().track_request(&mut next_id, req);
                 crate::io::blocking_write(&mut writer, raw_req)?;

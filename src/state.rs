@@ -60,7 +60,7 @@ impl Event {
 /// previously tracked request.
 #[derive(Debug)]
 pub struct State<PReq: PendingRequest> {
-    pending: HashMap<usize, PReq>,
+    pending: HashMap<u32, PReq>,
 }
 
 impl<PReq: PendingRequest> Default for State<PReq> {
@@ -102,13 +102,13 @@ impl<PReq: PendingRequest> State<PReq> {
     ///
     /// Returns a [`MaybeBatch<RawRequest>`], preserving whether the input was a single request or a
     /// batch.
-    pub fn track_request<R>(&mut self, next_id: &mut usize, req: R) -> MaybeBatch<RawRequest>
+    pub fn track_request<R>(&mut self, next_id: &mut u32, req: R) -> MaybeBatch<RawRequest>
     where
         R: Into<MaybeBatch<PReq>>,
     {
         fn _add_request<PReq: PendingRequest>(
             state: &mut State<PReq>,
-            next_id: &mut usize,
+            next_id: &mut u32,
             req: PReq,
         ) -> RawRequest {
             let id = *next_id;
@@ -172,14 +172,14 @@ impl<PReq: PendingRequest> State<PReq> {
 #[derive(Debug)]
 pub enum ProcessError {
     /// A response was received for an unknown or untracked request ID.
-    MissingRequest(usize),
+    MissingRequest(u32),
 
     /// The server returned a successful response, but it could not be deserialized into the
     /// expected type.
     ///
     /// The `usize` is the request ID, and the `serde_json::Error` is the underlying deserialization
     /// failure.
-    CannotDeserializeResponse(usize, serde_json::Error),
+    CannotDeserializeResponse(u32, serde_json::Error),
 
     /// A server notification could not be deserialized into the expected notification type.
     ///

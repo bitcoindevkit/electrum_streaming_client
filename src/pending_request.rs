@@ -288,3 +288,20 @@ gen_pending_request_types! {
     Ping,
     Custom
 }
+
+impl<A: PendingRequest> PendingRequest for Box<A> {
+    fn to_method_and_params(&self) -> MethodAndParams {
+        self.as_ref().to_method_and_params()
+    }
+
+    fn satisfy(
+        self,
+        raw_resp: serde_json::Value,
+    ) -> Result<Option<SatisfiedRequest>, serde_json::Error> {
+        (*self).satisfy(raw_resp)
+    }
+
+    fn satisfy_error(self, raw_error: serde_json::Value) -> Option<ErroredRequest> {
+        (*self).satisfy_error(raw_error)
+    }
+}

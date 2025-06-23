@@ -114,7 +114,7 @@ impl<R: std::io::BufRead> Iterator for ReadStreamer<R> {
             if let Err(err) = reader.read_until(b'\n', &mut self.buf) {
                 self.err = Some(err);
                 continue;
-            };
+            }
             if self._enqueue_from_buf() {
                 self.reader = Some(reader);
             }

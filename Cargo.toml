@@ -1,10 +1,10 @@
 [package]
 name = "electrum_streaming_client"
-version = "0.3.0"
+version = "0.4.0"
 description = "Experimental but sane electrum client by @evanlinjin."
 license = "MIT OR Apache-2.0"
 edition = "2021"
-rust-version = "1.63"
+rust-version = "1.70"
 repository = "https://github.com/bitcoindevkit/electrum_streaming_client"
 documentation = "https://docs.rs/electrum_streaming_client"
 readme = "README.md"

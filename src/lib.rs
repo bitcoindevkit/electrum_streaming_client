@@ -14,6 +14,7 @@ pub use batch_request::*;
 pub use hash_types::*;
 pub use pending_request::*;
 pub use request::Request;
+pub use serde_json;
 use serde_json::Value;
 pub use state::*;
 use std::fmt::Display;
@@ -183,7 +184,7 @@ pub struct RawResponse {
     pub version: Version,
 
     /// The ID that matches the request this response is answering.
-    pub id: usize,
+    pub id: u32,
 
     /// The result if the request succeeded, or the error object if it failed.
     #[serde(flatten, deserialize_with = "crate::custom_serde::result")]
@@ -214,7 +215,7 @@ pub struct RawRequest {
     pub jsonrpc: CowStr,
 
     /// The client-assigned request ID (used to correlate with responses).
-    pub id: usize,
+    pub id: u32,
 
     /// The method to be invoked (e.g., `"blockchain.headers.subscribe"`).
     pub method: CowStr,
@@ -227,13 +228,17 @@ impl RawRequest {
     /// Constructs a new JSON-RPC request with the given ID, method, and parameters.
     ///
     /// This sets the JSON-RPC version to `"2.0"`.
-    pub fn new(id: usize, method: CowStr, params: Vec<Value>) -> Self {
+    pub fn new(id: u32, method: CowStr, params: Vec<Value>) -> Self {
         Self {
             jsonrpc: JSONRPC_VERSION_2_0.into(),
             id,
             method,
             params,
         }
+    }
+
+    pub fn from_request<Req: Request>(id: u32, req: Req) -> Self {
+        (id, req).into()
     }
 }
 
@@ -274,6 +279,20 @@ impl<T> MaybeBatch<T> {
                 Some(MaybeBatch::Batch(items))
             }
         }
+    }
+
+    pub fn map<T2>(self, f: impl Fn(T) -> T2) -> MaybeBatch<T2> {
+        match self {
+            MaybeBatch::Single(t) => MaybeBatch::Single(f(t)),
+            MaybeBatch::Batch(items) => MaybeBatch::Batch(items.into_iter().map(f).collect()),
+        }
+    }
+
+    pub fn map_into<T2>(self) -> MaybeBatch<T2>
+    where
+        T: Into<T2>,
+    {
+        self.map(Into::into)
     }
 }
 
