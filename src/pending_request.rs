@@ -285,6 +285,7 @@ gen_pending_request_types! {
     GetTxidFromPos,
     GetFeeHistogram,
     Banner,
+    Features,
     Ping,
     Custom
 }
