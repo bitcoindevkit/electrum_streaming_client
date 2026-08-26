@@ -20,7 +20,9 @@ pub use protocol::*;
 pub use request::Request;
 pub use request_tracker::*;
 pub use serde_json;
-pub use transport::{ConnectError, Host, ParseServerAddrError, ServerAddr};
+pub use transport::{
+    ConnectConfig, ConnectConfigBuilder, ConnectError, Host, ParseServerAddrError, ServerAddr,
+};
 
 #[cfg(feature = "ssl")]
 pub use transport::TlsError;
