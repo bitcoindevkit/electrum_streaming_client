@@ -16,36 +16,39 @@ models.
 ## Example (async with Tokio)
 
 ```rust,no_run
-use std::time::Duration;
-
-use electrum_streaming_client::{AsyncClient, ServerAddr};
+# #[cfg(all(feature = "tokio", feature = "ssl"))]
+# mod example {
+use electrum_streaming_client::{request, AsyncClient, ConnectConfig};
 use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let addr: ServerAddr = "127.0.0.1:50001".parse()?;
-    let (client, mut events, worker) =
-        AsyncClient::connect_tcp(&addr, Some(Duration::from_secs(10))).await?;
+    let (client, mut events, worker) = AsyncClient::connect(
+        "ssl://electrum.blockstream.info:50002",
+        &ConnectConfig::default(),
+    )
+    .await?;
+    let worker = tokio::spawn(worker);
 
-    tokio::spawn(worker); // spawn the client worker task
-
-    let relay_fee = client.send_request(electrum_streaming_client::request::RelayFee).await?;
+    let relay_fee = client.send_request(request::RelayFee).await?;
     println!("Relay fee: {relay_fee:?}");
 
-    while let Some(event) = events.next().await {
-        println!("Event: {event:?}");
-    }
+    client.send_event_request(request::HeadersSubscribe)?;
+    println!("Event: {:?}", events.next().await);
+
+    drop(client);
+    worker.await??;
 
     Ok(())
 }
+# }
 ```
 
 ## Optional Features
 
-- `tokio`: Enables [`AsyncClient::new_tokio`] and [`AsyncClient::connect_tcp`].
+- `tokio` (default): Enables Tokio transport support.
 - `ssl`: Enables TLS via rustls. Async TLS additionally requires `tokio`.
 
 ## License
 
 MIT
-

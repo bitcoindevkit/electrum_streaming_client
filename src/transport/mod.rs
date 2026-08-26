@@ -1,9 +1,7 @@
-//! Address types and TCP/TLS constructors for Electrum connections.
+//! Address types and transport constructors for Electrum connections.
 //!
-//! [`ServerAddr`] keeps the hostname unresolved so TLS SNI and certificate validation can use
-//! the original name. Use [`blocking::connect_tcp`] / [`blocking::connect_ssl`] or the tokio
-//! equivalents, or the client wrappers [`crate::BlockingClient::connect_tcp`] /
-//! [`crate::AsyncClient::connect_tcp`].
+//! Use [`crate::BlockingClient::connect`] or [`crate::AsyncClient::connect`] for built-in
+//! TCP/TLS, or [`crate::BlockingClient::new`] / [`crate::AsyncClient::new`] for custom I/O.
 
 use std::fmt;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
@@ -13,6 +11,36 @@ use std::sync::Arc;
 
 #[cfg(feature = "ssl")]
 mod tls;
+
+/// A parsed Electrum server address and transport.
+///
+/// Accepts `[tcp://|ssl://]host:port`; no scheme defaults to TCP.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ConnectTarget {
+    /// Plaintext TCP (`tcp://` or no scheme prefix).
+    Tcp(ServerAddr),
+    /// SSL/TLS encrypted TCP (`ssl://`).
+    #[cfg_attr(not(feature = "ssl"), allow(dead_code))]
+    Ssl(ServerAddr),
+}
+
+impl FromStr for ConnectTarget {
+    type Err = ParseServerAddrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let parse_addr = |addr: &str| {
+            addr.parse::<ServerAddr>()
+                .map_err(|_| ParseServerAddrError(s.to_string()))
+        };
+
+        match s.split_once("://") {
+            Some(("tcp", addr)) => Ok(Self::Tcp(parse_addr(addr)?)),
+            Some(("ssl", addr)) => Ok(Self::Ssl(parse_addr(addr)?)),
+            Some(_) => Err(ParseServerAddrError(s.to_string())),
+            None => Ok(Self::Tcp(parse_addr(s)?)),
+        }
+    }
+}
 
 /// The host portion of a [`ServerAddr`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +64,8 @@ impl fmt::Display for Host {
 /// An Electrum server address: a [`Host`] and a port, without a connection scheme.
 ///
 /// Parses from `"host:port"`. IPv6 literals must be bracketed (`"[::1]:50001"`).
+/// Scheme prefixes are rejected; use [`crate::BlockingClient::connect`] or
+/// [`crate::AsyncClient::connect`] for scheme-prefixed input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerAddr {
     host: Host,
@@ -113,7 +143,7 @@ impl ToSocketAddrs for ServerAddr {
     }
 }
 
-/// An error parsing a [`ServerAddr`] from a string.
+/// An error parsing a [`ServerAddr`].
 ///
 /// The payload is the full input string that failed to parse.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,15 +157,87 @@ impl fmt::Display for ParseServerAddrError {
 
 impl std::error::Error for ParseServerAddrError {}
 
+/// Configuration for [`crate::client::BlockingClient::connect`] /
+/// [`crate::client::AsyncClient::connect`].
+///
+/// Use [`ConnectConfig::builder`] to construct.
+#[derive(Debug, Clone)]
+pub struct ConnectConfig {
+    /// Timeout for establishing the connection (`None` = no limit).
+    timeout: Option<std::time::Duration>,
+    /// Whether to validate the server's TLS certificate against the domain (TLS only).
+    validate_domain: bool,
+}
+
+impl ConnectConfig {
+    /// Returns a [`ConnectConfigBuilder`] with default values.
+    pub fn builder() -> ConnectConfigBuilder {
+        ConnectConfigBuilder::default()
+    }
+
+    /// Timeout for establishing the connection.
+    ///
+    /// `None` means no limit.
+    pub fn timeout(&self) -> Option<std::time::Duration> {
+        self.timeout
+    }
+
+    /// Whether to validate the server's TLS certificate against the domain.
+    ///
+    /// This only applies to TLS connections and is ignored for plain TCP. Defaults to `true`.
+    pub fn validate_domain(&self) -> bool {
+        self.validate_domain
+    }
+}
+
+impl Default for ConnectConfig {
+    fn default() -> Self {
+        Self {
+            timeout: None,
+            validate_domain: true,
+        }
+    }
+}
+
+/// A builder for [`ConnectConfig`], obtained via [`ConnectConfig::builder`].
+#[derive(Debug, Clone, Default)]
+pub struct ConnectConfigBuilder {
+    config: ConnectConfig,
+}
+
+impl ConnectConfigBuilder {
+    /// Sets the connection timeout. See [`ConnectConfig::timeout`].
+    pub fn timeout(mut self, timeout: Option<std::time::Duration>) -> Self {
+        self.config.timeout = timeout;
+        self
+    }
+
+    /// Sets whether to validate the server's TLS certificate against the domain. See
+    /// [`ConnectConfig::validate_domain`].
+    pub fn validate_domain(mut self, validate_domain: bool) -> Self {
+        self.config.validate_domain = validate_domain;
+        self
+    }
+
+    /// Builds the [`ConnectConfig`].
+    pub fn build(self) -> ConnectConfig {
+        self.config
+    }
+}
+
 /// Error establishing an Electrum connection.
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum ConnectError {
+    /// The server address failed to parse.
+    InvalidServerAddr(ParseServerAddrError),
     /// Transport or socket failure, including DNS, TCP, timeout, and handshake EOF/reset.
     Io(std::io::Error),
     /// TLS configuration, protocol, or certificate-validation failure.
     #[cfg(feature = "ssl")]
     Tls(TlsError),
+    /// The URL uses `ssl://` but the crate was built without the `ssl` feature.
+    SslUnsupported,
 }
 
 #[cfg(feature = "ssl")]
@@ -163,9 +265,13 @@ impl ConnectError {
 impl fmt::Display for ConnectError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            ConnectError::InvalidServerAddr(error) => write!(f, "{error}"),
             ConnectError::Io(e) => write!(f, "connection I/O error: {e}"),
             #[cfg(feature = "ssl")]
             ConnectError::Tls(e) => write!(f, "{e}"),
+            ConnectError::SslUnsupported => {
+                write!(f, "the 'ssl://' scheme requires the 'ssl' feature")
+            }
         }
     }
 }
@@ -173,9 +279,11 @@ impl fmt::Display for ConnectError {
 impl std::error::Error for ConnectError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            ConnectError::InvalidServerAddr(error) => Some(error),
             ConnectError::Io(e) => Some(e),
             #[cfg(feature = "ssl")]
             ConnectError::Tls(e) => Some(e),
+            ConnectError::SslUnsupported => None,
         }
     }
 }
@@ -183,6 +291,12 @@ impl std::error::Error for ConnectError {
 impl From<std::io::Error> for ConnectError {
     fn from(e: std::io::Error) -> Self {
         ConnectError::Io(e)
+    }
+}
+
+impl From<ParseServerAddrError> for ConnectError {
+    fn from(error: ParseServerAddrError) -> Self {
+        ConnectError::InvalidServerAddr(error)
     }
 }
 
@@ -586,22 +700,18 @@ mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-    fn addr(s: &str) -> ServerAddr {
-        s.parse().unwrap_or_else(|e| panic!("{s:?}: {e}"))
-    }
-
     #[test]
     fn server_addr_parse() {
-        let a = addr("127.0.0.1:50001");
+        let a: ServerAddr = "127.0.0.1:50001".parse().unwrap();
         assert_eq!(a.host(), &Host::Ip(IpAddr::V4(Ipv4Addr::LOCALHOST)));
         assert_eq!(a.port(), 50001);
         assert_eq!(a.to_string(), "127.0.0.1:50001");
 
-        let a = addr("localhost:50001");
+        let a: ServerAddr = "localhost:50001".parse().unwrap();
         assert_eq!(a.host(), &Host::Domain("localhost".into()));
         assert_eq!(a.port(), 50001);
 
-        let a = addr("[::1]:50001");
+        let a: ServerAddr = "[::1]:50001".parse().unwrap();
         assert_eq!(a.host(), &Host::Ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
         assert_eq!(a.port(), 50001);
         assert_eq!(a.to_string(), "[::1]:50001");
@@ -619,5 +729,35 @@ mod tests {
         ] {
             assert!(bad.parse::<ServerAddr>().is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn connect_target_parse() {
+        assert_eq!(
+            "127.0.0.1:50001".parse::<ConnectTarget>().unwrap(),
+            ConnectTarget::Tcp("127.0.0.1:50001".parse().unwrap())
+        );
+        assert_eq!(
+            "tcp://electrum.example.com:50001"
+                .parse::<ConnectTarget>()
+                .unwrap(),
+            ConnectTarget::Tcp("electrum.example.com:50001".parse().unwrap())
+        );
+        assert_eq!(
+            "ssl://[::1]:50002".parse::<ConnectTarget>().unwrap(),
+            ConnectTarget::Ssl("[::1]:50002".parse().unwrap())
+        );
+
+        for bad in ["http://host:80", "TCP://host:1", "ssl://", "tcp://host"] {
+            assert!(bad.parse::<ConnectTarget>().is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn client_connect_rejects_invalid_server_addr() {
+        assert!(matches!(
+            crate::BlockingClient::connect("http://host:80", &ConnectConfig::default()),
+            Err(ConnectError::InvalidServerAddr(error)) if error.0 == "http://host:80"
+        ));
     }
 }
