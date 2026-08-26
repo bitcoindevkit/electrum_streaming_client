@@ -9,6 +9,9 @@ repository = "https://github.com/bitcoindevkit/electrum_streaming_client"
 documentation = "https://docs.rs/electrum_streaming_client"
 readme = "README.md"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
@@ -17,11 +20,15 @@ bitcoin = { version = "0.32", features = ["serde"] }
 
 tokio = { version = "1.44.2", features = ["io-util", "net", "time"], optional = true }
 tokio-util = { version = "0.7.15", features = ["compat"], optional = true }
+tokio-rustls = { version = "0.26", optional = true }
+rustls = { version = "0.23", optional = true }
+webpki-roots = { version = "1", optional = true }
 
 [features]
 default = ["tokio"]
 tokio = ["dep:tokio", "tokio-util"]
 frigate = []
+ssl = ["dep:rustls", "dep:webpki-roots", "dep:tokio-rustls"]
 
 [dev-dependencies]
 async-std = "1.13.0"

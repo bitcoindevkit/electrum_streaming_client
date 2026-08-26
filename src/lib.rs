@@ -20,7 +20,10 @@ pub use protocol::*;
 pub use request::Request;
 pub use request_tracker::*;
 pub use serde_json;
-pub use transport::{Host, ParseServerAddrError, ServerAddr};
+pub use transport::{ConnectError, Host, ParseServerAddrError, ServerAddr};
+
+#[cfg(feature = "ssl")]
+pub use transport::TlsError;
 
 /// An owned or borrowed static string.
 pub type CowStr = std::borrow::Cow<'static, str>;

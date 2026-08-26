@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
 ## Optional Features
 
 - `tokio`: Enables `AsyncClient::new_tokio` and `AsyncClient::connect_tcp`.
+- `ssl`: Enables TLS via rustls. Async TLS additionally requires `tokio`.
 
 ## License
 

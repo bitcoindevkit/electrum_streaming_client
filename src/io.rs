@@ -178,7 +178,8 @@ where
 {
     let mut b = serde_json::to_vec(&msg.into()).expect("must serialize");
     b.push(b'\n');
-    writer.write_all(&b)
+    writer.write_all(&b)?;
+    writer.flush()
 }
 
 /// Asynchronously writes a JSON-RPC request or batch to an async writer, followed by a newline.
@@ -200,7 +201,8 @@ where
     use futures::AsyncWriteExt;
     let mut b = serde_json::to_vec(&msg.into()).expect("must serialize");
     b.push(b'\n');
-    writer.write_all(&b).await
+    writer.write_all(&b).await?;
+    writer.flush().await
 }
 
 /// Asynchronously writes a JSON-RPC request or batch to a tokio async writer, followed by a newline.
@@ -215,5 +217,6 @@ where
     use tokio::io::AsyncWriteExt;
     let mut b = serde_json::to_vec(&msg.into()).expect("must serialize");
     b.push(b'\n');
-    writer.write_all(&b).await
+    writer.write_all(&b).await?;
+    writer.flush().await
 }

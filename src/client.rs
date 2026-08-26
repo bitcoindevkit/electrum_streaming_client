@@ -195,6 +195,28 @@ impl AsyncClient {
         Ok(Self::new_tokio(reader, writer))
     }
 
+    /// Creates a new [`AsyncClient`] connected to `addr` over TLS via Tokio.
+    ///
+    /// `timeout` bounds DNS, TCP connect, and the TLS handshake.
+    /// `validate_domain` requires a domain host.
+    #[cfg(all(feature = "ssl", feature = "tokio"))]
+    pub async fn connect_ssl(
+        addr: &crate::transport::ServerAddr,
+        validate_domain: bool,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<
+        (
+            Self,
+            AsyncEventReceiver,
+            impl std::future::Future<Output = std::io::Result<()>> + Send,
+        ),
+        crate::ConnectError,
+    > {
+        let stream = crate::transport::tokio::connect_ssl(addr, validate_domain, timeout).await?;
+        let (reader, writer) = tokio::io::split(stream);
+        Ok(Self::new_tokio(reader, writer))
+    }
+
     /// Sends a single tracked request to the Electrum server and awaits the response.
     ///
     /// This method is for request–response style interactions where only a single result is
@@ -399,6 +421,30 @@ impl BlockingClient {
         let stream = crate::transport::blocking::connect_tcp(addr, timeout)?;
         let reader = stream.try_clone()?;
         Ok(Self::new(reader, ShutdownOnDropTcpWriter(stream)))
+    }
+
+    /// Creates a new [`BlockingClient`] connected to `addr` over TLS.
+    ///
+    /// `timeout` bounds TCP connect and the TLS handshake.
+    /// `validate_domain` requires a domain host.
+    #[cfg(feature = "ssl")]
+    #[allow(clippy::type_complexity)]
+    pub fn connect_ssl(
+        addr: &crate::transport::ServerAddr,
+        validate_domain: bool,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<
+        (
+            Self,
+            BlockingEventReceiver,
+            std::thread::JoinHandle<std::io::Result<()>>,
+            std::thread::JoinHandle<std::io::Result<()>>,
+        ),
+        crate::ConnectError,
+    > {
+        let stream = crate::transport::blocking::connect_ssl(addr, validate_domain, timeout)?;
+        let (reader, writer) = stream.into_split();
+        Ok(Self::new(reader, writer))
     }
 
     /// Sends a single tracked request to the Electrum server and waits for its response.
