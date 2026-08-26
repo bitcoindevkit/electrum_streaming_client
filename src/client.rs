@@ -180,6 +180,21 @@ impl AsyncClient {
         self.tx.close_channel();
     }
 
+    /// Creates a new [`AsyncClient`] connected to `addr` over plaintext TCP via Tokio.
+    #[cfg(feature = "tokio")]
+    pub async fn connect_tcp(
+        addr: &crate::transport::ServerAddr,
+        timeout: Option<std::time::Duration>,
+    ) -> std::io::Result<(
+        Self,
+        AsyncEventReceiver,
+        impl std::future::Future<Output = std::io::Result<()>> + Send,
+    )> {
+        let stream = crate::transport::tokio::connect_tcp(addr, timeout).await?;
+        let (reader, writer) = tokio::io::split(stream);
+        Ok(Self::new_tokio(reader, writer))
+    }
+
     /// Sends a single tracked request to the Electrum server and awaits the response.
     ///
     /// This method is for request–response style interactions where only a single result is
@@ -254,6 +269,31 @@ impl AsyncClient {
             Some(batch) => self.tx.unbounded_send(batch).map(|_| true),
             None => Ok(false),
         }
+    }
+}
+
+/// A `Write` wrapper around a [`std::net::TcpStream`] that shuts down the socket on drop.
+///
+/// [`BlockingClient::connect_tcp`] reads on a `try_clone` handle while the write thread holds
+/// this wrapper. When the last client handle drops, the write thread ends and dropping this
+/// wrapper shuts the socket down, unblocking the read thread. A plain `try_clone` handle would
+/// otherwise keep the socket alive until the peer closes it.
+#[derive(Debug)]
+struct ShutdownOnDropTcpWriter(std::net::TcpStream);
+
+impl std::io::Write for ShutdownOnDropTcpWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        std::io::Write::write(&mut self.0, buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        std::io::Write::flush(&mut self.0)
+    }
+}
+
+impl Drop for ShutdownOnDropTcpWriter {
+    fn drop(&mut self) {
+        let _ = self.0.shutdown(std::net::Shutdown::Both);
     }
 }
 
@@ -343,6 +383,22 @@ impl BlockingClient {
             Ok(())
         });
         (Self { tx: req_tx }, event_recv, read_join, write_join)
+    }
+
+    /// Creates a new [`BlockingClient`] connected to `addr` over plaintext TCP.
+    #[allow(clippy::type_complexity)]
+    pub fn connect_tcp(
+        addr: &crate::transport::ServerAddr,
+        timeout: Option<std::time::Duration>,
+    ) -> std::io::Result<(
+        Self,
+        BlockingEventReceiver,
+        std::thread::JoinHandle<std::io::Result<()>>,
+        std::thread::JoinHandle<std::io::Result<()>>,
+    )> {
+        let stream = crate::transport::blocking::connect_tcp(addr, timeout)?;
+        let reader = stream.try_clone()?;
+        Ok(Self::new(reader, ShutdownOnDropTcpWriter(stream)))
     }
 
     /// Sends a single tracked request to the Electrum server and waits for its response.

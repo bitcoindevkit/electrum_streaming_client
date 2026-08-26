@@ -13,12 +13,14 @@ pub mod protocol;
 pub mod request;
 mod request_tracker;
 pub mod response;
+pub mod transport;
 pub use hash_types::*;
 pub use pending_request::*;
 pub use protocol::*;
 pub use request::Request;
 pub use request_tracker::*;
 pub use serde_json;
+pub use transport::{Host, ParseServerAddrError, ServerAddr};
 
 /// An owned or borrowed static string.
 pub type CowStr = std::borrow::Cow<'static, str>;

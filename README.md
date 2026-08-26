@@ -16,15 +16,16 @@ models.
 ## Example (async with Tokio)
 
 ```rust,no_run
-use electrum_streaming_client::{AsyncClient, Event};
-use tokio::net::TcpStream;
+use std::time::Duration;
+
+use electrum_streaming_client::{AsyncClient, ServerAddr};
 use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let stream = TcpStream::connect("127.0.0.1:50001").await?;
-    let (reader, writer) = stream.into_split();
-    let (client, mut events, worker) = AsyncClient::new_tokio(reader, writer);
+    let addr: ServerAddr = "127.0.0.1:50001".parse()?;
+    let (client, mut events, worker) =
+        AsyncClient::connect_tcp(&addr, Some(Duration::from_secs(10))).await?;
 
     tokio::spawn(worker); // spawn the client worker task
 
@@ -43,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
 
 ## Optional Features
 
-- `tokio`: Enables `AsyncClient::new_tokio` for use with Tokio-compatible streams.
+- `tokio`: Enables `AsyncClient::new_tokio` and `AsyncClient::connect_tcp`.
 
 ## License
 

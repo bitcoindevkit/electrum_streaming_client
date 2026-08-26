@@ -1,0 +1,246 @@
+//! Address types and plaintext TCP constructors for Electrum connections.
+//!
+//! [`ServerAddr`] keeps the hostname unresolved so later TLS (SNI, certificates) can use the
+//! original name. Use [`blocking::connect_tcp`] or [`tokio::connect_tcp`], or the client wrappers
+//! [`crate::BlockingClient::connect_tcp`] / [`crate::AsyncClient::connect_tcp`].
+
+use std::fmt;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::str::FromStr;
+
+/// The host portion of a [`ServerAddr`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Host {
+    /// A domain name, e.g. `electrum.example.com`.
+    Domain(String),
+    /// An IP literal.
+    Ip(IpAddr),
+}
+
+impl fmt::Display for Host {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Host::Domain(domain) => f.write_str(domain),
+            Host::Ip(IpAddr::V4(ip)) => write!(f, "{}", ip),
+            Host::Ip(IpAddr::V6(ip)) => write!(f, "[{}]", ip),
+        }
+    }
+}
+
+/// An Electrum server address: a [`Host`] and a port, without a connection scheme.
+///
+/// Parses from `"host:port"`. IPv6 literals must be bracketed (`"[::1]:50001"`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerAddr {
+    host: Host,
+    port: u16,
+}
+
+impl ServerAddr {
+    /// Creates a new `ServerAddr` from a [`Host`] and port.
+    pub fn new(host: Host, port: u16) -> Self {
+        Self { host, port }
+    }
+
+    /// The host portion of this address.
+    pub fn host(&self) -> &Host {
+        &self.host
+    }
+
+    /// The port of this address.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+impl fmt::Display for ServerAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
+    }
+}
+
+impl FromStr for ServerAddr {
+    type Err = ParseServerAddrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let invalid = || ParseServerAddrError(s.to_string());
+
+        if s.contains("://") {
+            return Err(invalid());
+        }
+
+        // Bracketed IP literal: "[<ip>]:<port>".
+        if let Some(rest) = s.strip_prefix('[') {
+            let (ip_str, port_str) = rest.split_once("]:").ok_or_else(invalid)?;
+            return Ok(Self {
+                host: Host::Ip(ip_str.parse().map_err(|_| invalid())?),
+                port: port_str.parse().map_err(|_| invalid())?,
+            });
+        }
+
+        let (host_str, port_str) = s.rsplit_once(':').ok_or_else(invalid)?;
+        if host_str.is_empty() || host_str.contains(':') {
+            // Empty host, or an unbracketed IPv6 literal.
+            return Err(invalid());
+        }
+        Ok(Self {
+            host: match host_str.parse::<IpAddr>() {
+                Ok(ip) => Host::Ip(ip),
+                Err(_) => Host::Domain(host_str.to_string()),
+            },
+            port: port_str.parse().map_err(|_| invalid())?,
+        })
+    }
+}
+
+impl ToSocketAddrs for ServerAddr {
+    type Iter = std::vec::IntoIter<SocketAddr>;
+
+    /// Resolves this address via **local DNS**.
+    ///
+    /// Do not use this for `.onion` hosts — they are not resolvable via local DNS.
+    fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
+        match &self.host {
+            Host::Ip(ip) => Ok(vec![SocketAddr::new(*ip, self.port)].into_iter()),
+            Host::Domain(domain) => (domain.as_str(), self.port).to_socket_addrs(),
+        }
+    }
+}
+
+/// An error parsing a [`ServerAddr`] from a string.
+///
+/// The payload is the full input string that failed to parse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseServerAddrError(pub String);
+
+impl fmt::Display for ParseServerAddrError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid server address '{}'", self.0)
+    }
+}
+
+impl std::error::Error for ParseServerAddrError {}
+
+/// Blocking (std I/O) transport constructors.
+pub mod blocking {
+    use std::io;
+    use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    use super::ServerAddr;
+
+    /// Connects to `addr` over plaintext TCP using blocking I/O.
+    ///
+    /// `timeout` bounds TCP connection, not DNS. No read/write timeout
+    /// on the returned stream.
+    pub fn connect_tcp(addr: &ServerAddr, timeout: Option<Duration>) -> io::Result<TcpStream> {
+        let addrs: Vec<_> = addr.to_socket_addrs()?.collect();
+        match timeout {
+            Some(timeout) => connect_with_total_timeout(&addrs, timeout),
+            None => TcpStream::connect(addrs.as_slice()),
+        }
+    }
+
+    /// Tries each addr, splitting `timeout` across attempts.
+    fn connect_with_total_timeout(
+        addrs: &[SocketAddr],
+        mut timeout: Duration,
+    ) -> io::Result<TcpStream> {
+        // Use the same algorithm as curl: 1/2 of the timeout on the first address, 1/4 on the
+        // second one, etc. https://curl.se/mail/lib-2014-11/0164.html
+        let mut last_err = None;
+        for (index, addr) in addrs.iter().enumerate() {
+            if index < addrs.len() - 1 {
+                timeout = timeout.div_f32(2.0);
+            }
+            match TcpStream::connect_timeout(addr, timeout) {
+                Ok(stream) => return Ok(stream),
+                Err(err) => last_err = Some(err),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "could not resolve to any addresses",
+            )
+        }))
+    }
+}
+
+/// Tokio-based async transport constructors.
+#[cfg(feature = "tokio")]
+pub mod tokio {
+    use std::io;
+    use std::net::SocketAddr;
+    use std::time::Duration;
+
+    use tokio::net::TcpStream;
+
+    use super::{Host, ServerAddr};
+
+    /// Connects to `addr` over plaintext TCP using the Tokio runtime.
+    ///
+    /// `timeout` bounds DNS and TCP connection.
+    pub async fn connect_tcp(
+        addr: &ServerAddr,
+        timeout: Option<Duration>,
+    ) -> io::Result<TcpStream> {
+        let connect_fut = async {
+            match addr.host() {
+                Host::Domain(domain) => TcpStream::connect((domain.as_str(), addr.port())).await,
+                Host::Ip(ip) => TcpStream::connect(SocketAddr::new(*ip, addr.port())).await,
+            }
+        };
+        match timeout {
+            Some(timeout) => match tokio::time::timeout(timeout, connect_fut).await {
+                Ok(res) => res,
+                Err(_elapsed) => Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!("connection to '{}' timed out", addr),
+                )),
+            },
+            None => connect_fut.await,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    fn addr(s: &str) -> ServerAddr {
+        s.parse().unwrap_or_else(|e| panic!("{s:?}: {e}"))
+    }
+
+    #[test]
+    fn server_addr_parse() {
+        let a = addr("127.0.0.1:50001");
+        assert_eq!(a.host(), &Host::Ip(IpAddr::V4(Ipv4Addr::LOCALHOST)));
+        assert_eq!(a.port(), 50001);
+        assert_eq!(a.to_string(), "127.0.0.1:50001");
+
+        let a = addr("localhost:50001");
+        assert_eq!(a.host(), &Host::Domain("localhost".into()));
+        assert_eq!(a.port(), 50001);
+
+        let a = addr("[::1]:50001");
+        assert_eq!(a.host(), &Host::Ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+        assert_eq!(a.port(), 50001);
+        assert_eq!(a.to_string(), "[::1]:50001");
+
+        for bad in [
+            "tcp://127.0.0.1:50001",
+            "ssl://host:50002",
+            "::1:50001",
+            ":50001",
+            "host",
+            "host:",
+            "host:99999",
+            "[::1]50001",
+            "[example.com]:50001",
+        ] {
+            assert!(bad.parse::<ServerAddr>().is_err(), "{bad}");
+        }
+    }
+}
