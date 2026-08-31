@@ -5,6 +5,7 @@
 //!
 //! - [`Notification::Header`] for `"blockchain.headers.subscribe"`
 //! - [`Notification::ScriptHash`] for `"blockchain.scripthash.subscribe"`
+//! - `Notification::SpSubscribe` for `"blockchain.silentpayments.subscribe"` (requires the `frigate` feature)
 //! - [`Notification::Unknown`] for unrecognized or unsupported methods
 //!
 //! Each variant wraps a struct that contains the deserialized payload for that notification type.
@@ -32,6 +33,11 @@ pub enum Notification {
     /// status.
     ScriptHash(ScriptHashNotification),
 
+    /// A notification from `"blockchain.silentpayments.subscribe"` indicating a new history
+    /// of transactions
+    #[cfg(feature = "frigate")]
+    SpSubscribe(SpNotification),
+
     /// A catch-all for notifications with unrecognized methods.
     ///
     /// The original [`RawNotification`] is preserved for downstream inspection.
@@ -51,6 +57,10 @@ impl Notification {
             }
             "blockchain.scripthash.subscribe" => {
                 ScriptHashNotification::deserialize(params).map(Notification::ScriptHash)
+            }
+            #[cfg(feature = "frigate")]
+            "blockchain.silentpayments.subscribe" => {
+                SpNotification::deserialize(params).map(Notification::SpSubscribe)
             }
             _ => Ok(Notification::Unknown(raw.clone())),
         }
@@ -101,4 +111,24 @@ impl ScriptHashNotification {
     pub fn script_status(&self) -> Option<ElectrumScriptStatus> {
         self.param_1
     }
+}
+
+/// An update for a Silent Payments subscription.
+///
+/// Corresponds to `"blockchain.silentpayments.subscribe"` Frigate Electrum notification method.
+#[cfg(feature = "frigate")]
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SpNotification {
+    /// Identifies the subscription to which this notification belongs.
+    pub subscription: response::SpSubscribeResp,
+
+    /// Historical scan progress from `0.0` through `1.0`.
+    ///
+    /// A value of `1.0` indicates that the scan is up to date.
+    pub progress: f32,
+
+    /// Transactions discovered by the scan.
+    ///
+    /// Confirmed transactions are ordered by block height.
+    pub history: Vec<response::TxTweak>,
 }

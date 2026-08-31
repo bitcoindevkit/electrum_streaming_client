@@ -119,7 +119,9 @@ gen_pending_request_types! {
     Banner,
     Features,
     Ping,
-    Custom
+    Custom,
+    #[cfg(feature = "frigate")] SpSubscribe,
+    #[cfg(feature = "frigate")] SpUnsubscribe
 }
 
 type Handler =
