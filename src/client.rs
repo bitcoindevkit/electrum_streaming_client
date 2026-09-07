@@ -1,4 +1,7 @@
+use std::{future::Future, io, net::Shutdown, net::TcpStream, thread::JoinHandle, time::Duration};
+
 use crate::pending_request::{PendingRequest, RequestExt};
+use crate::transport::ConnectTarget;
 use crate::*;
 
 // --- Async client type aliases ---
@@ -94,7 +97,7 @@ impl AsyncClient {
     ) -> (
         Self,
         AsyncEventReceiver,
-        impl std::future::Future<Output = std::io::Result<()>> + Send,
+        impl Future<Output = io::Result<()>> + Send,
     )
     where
         R: futures::AsyncRead + Send + Unpin,
@@ -123,7 +126,7 @@ impl AsyncClient {
                         Some(incoming_res) => {
                             let event_opt = state
                                 .handle_incoming(incoming_res?)
-                                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+                                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
                             if let Some(event) = event_opt {
                                 if let Err(_err) = event_tx.unbounded_send(event) {
                                     break;
@@ -134,7 +137,7 @@ impl AsyncClient {
                     }
                 }
             }
-            std::io::Result::<()>::Ok(())
+            io::Result::<()>::Ok(())
         };
 
         (Self { tx: req_tx }, event_recv, fut)
@@ -164,7 +167,7 @@ impl AsyncClient {
     ) -> (
         Self,
         AsyncEventReceiver,
-        impl std::future::Future<Output = std::io::Result<()>> + Send,
+        impl Future<Output = io::Result<()>> + Send,
     )
     where
         R: tokio::io::AsyncRead + Send + Unpin,
@@ -177,6 +180,84 @@ impl AsyncClient {
     /// Close the channel.
     pub fn close(&self) {
         self.tx.close_channel();
+    }
+
+    /// Creates a new [`AsyncClient`] connected to `addr` over plaintext TCP via Tokio.
+    #[cfg(feature = "tokio")]
+    pub async fn connect_tcp(
+        addr: &crate::transport::ServerAddr,
+        timeout: Option<Duration>,
+    ) -> io::Result<(
+        Self,
+        AsyncEventReceiver,
+        impl Future<Output = io::Result<()>> + Send,
+    )> {
+        let stream = crate::transport::tokio::connect_tcp(addr, timeout).await?;
+        let (reader, writer) = tokio::io::split(stream);
+        Ok(Self::new_tokio(reader, writer))
+    }
+
+    /// Creates a new [`AsyncClient`] connected to `addr` over TLS via Tokio.
+    ///
+    /// `timeout` bounds DNS, TCP connect, and the TLS handshake.
+    /// `validate_domain` requires a domain host.
+    #[cfg(all(feature = "ssl", feature = "tokio"))]
+    pub async fn connect_ssl(
+        addr: &crate::transport::ServerAddr,
+        validate_domain: bool,
+        timeout: Option<Duration>,
+    ) -> Result<
+        (
+            Self,
+            AsyncEventReceiver,
+            impl Future<Output = io::Result<()>> + Send,
+        ),
+        crate::ConnectError,
+    > {
+        let stream = crate::transport::tokio::connect_ssl(addr, validate_domain, timeout).await?;
+        let (reader, writer) = tokio::io::split(stream);
+        Ok(Self::new_tokio(reader, writer))
+    }
+
+    /// Connects to `url` using its scheme.
+    ///
+    /// Accepts `host:port`, `tcp://host:port`, or `ssl://host:port`.
+    /// A missing scheme defaults to plaintext TCP; `ssl://` requires the `ssl` feature.
+    #[cfg(feature = "tokio")]
+    pub async fn connect(
+        url: &str,
+        config: &crate::transport::ConnectConfig,
+    ) -> Result<
+        (
+            Self,
+            AsyncEventReceiver,
+            impl Future<Output = io::Result<()>> + Send,
+        ),
+        crate::ConnectError,
+    > {
+        fn box_worker<F>(
+            worker: F,
+        ) -> std::pin::Pin<Box<dyn Future<Output = io::Result<()>> + Send>>
+        where
+            F: Future<Output = io::Result<()>> + Send + 'static,
+        {
+            Box::pin(worker)
+        }
+
+        match url.parse::<ConnectTarget>()? {
+            ConnectTarget::Tcp(addr) => {
+                let (client, events, worker) = Self::connect_tcp(&addr, config.timeout()).await?;
+                Ok((client, events, box_worker(worker)))
+            }
+            #[cfg(feature = "ssl")]
+            ConnectTarget::Ssl(addr) => {
+                let (client, events, worker) =
+                    Self::connect_ssl(&addr, config.validate_domain(), config.timeout()).await?;
+                Ok((client, events, box_worker(worker)))
+            }
+            #[cfg(not(feature = "ssl"))]
+            ConnectTarget::Ssl(_) => Err(crate::ConnectError::SslUnsupported),
+        }
     }
 
     /// Sends a single tracked request to the Electrum server and awaits the response.
@@ -256,6 +337,31 @@ impl AsyncClient {
     }
 }
 
+/// A `Write` wrapper around a [`TcpStream`] that shuts down the socket on drop.
+///
+/// [`BlockingClient::connect_tcp`] reads on a `try_clone` handle while the write thread holds
+/// this wrapper. When the last client handle drops, the write thread ends and dropping this
+/// wrapper shuts the socket down, unblocking the read thread. A plain `try_clone` handle would
+/// otherwise keep the socket alive until the peer closes it.
+#[derive(Debug)]
+struct ShutdownOnDropTcpWriter(TcpStream);
+
+impl io::Write for ShutdownOnDropTcpWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+}
+
+impl Drop for ShutdownOnDropTcpWriter {
+    fn drop(&mut self) {
+        let _ = self.0.shutdown(Shutdown::Both);
+    }
+}
+
 /// A blocking Electrum client built on standard I/O.
 ///
 /// This client wraps a blocking transport implementing [`std::io::Read`] and [`std::io::Write`] and
@@ -304,27 +410,27 @@ impl BlockingClient {
     ) -> (
         Self,
         BlockingEventReceiver,
-        std::thread::JoinHandle<std::io::Result<()>>,
-        std::thread::JoinHandle<std::io::Result<()>>,
+        JoinHandle<io::Result<()>>,
+        JoinHandle<io::Result<()>>,
     )
     where
-        R: std::io::Read + Send + 'static,
-        W: std::io::Write + Send + 'static,
+        R: io::Read + Send + 'static,
+        W: io::Write + Send + 'static,
     {
         use std::sync::mpsc::*;
         let (event_tx, event_recv) = channel::<Event>();
         let (req_tx, req_recv) = channel::<RawOneOrMany<PendingRequest>>();
-        let incoming_stream = crate::io::ReadStreamer::new(std::io::BufReader::new(reader));
+        let incoming_stream = crate::io::ReadStreamer::new(io::BufReader::new(reader));
         let read_state = std::sync::Arc::new(std::sync::Mutex::new(RequestTracker::new()));
         let write_state = std::sync::Arc::clone(&read_state);
 
-        let read_join = std::thread::spawn(move || -> std::io::Result<()> {
+        let read_join = std::thread::spawn(move || -> io::Result<()> {
             for incoming_res in incoming_stream {
                 let event_opt = read_state
                     .lock()
                     .unwrap()
                     .handle_incoming(incoming_res?)
-                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+                    .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
                 if let Some(event) = event_opt {
                     if let Err(_err) = event_tx.send(event) {
                         break;
@@ -333,7 +439,7 @@ impl BlockingClient {
             }
             Ok(())
         });
-        let write_join = std::thread::spawn(move || -> std::io::Result<()> {
+        let write_join = std::thread::spawn(move || -> io::Result<()> {
             let mut next_id = 0_u32;
             for req in req_recv {
                 let raw_req = write_state.lock().unwrap().track_request(&mut next_id, req);
@@ -342,6 +448,76 @@ impl BlockingClient {
             Ok(())
         });
         (Self { tx: req_tx }, event_recv, read_join, write_join)
+    }
+
+    /// Connects to `url` using its scheme.
+    ///
+    /// Accepts `host:port`, `tcp://host:port`, or `ssl://host:port`.
+    /// A missing scheme defaults to plaintext TCP; `ssl://` requires the `ssl` feature.
+    #[allow(clippy::type_complexity)]
+    pub fn connect(
+        url: &str,
+        config: &crate::transport::ConnectConfig,
+    ) -> Result<
+        (
+            Self,
+            BlockingEventReceiver,
+            JoinHandle<io::Result<()>>,
+            JoinHandle<io::Result<()>>,
+        ),
+        crate::ConnectError,
+    > {
+        match url.parse::<ConnectTarget>()? {
+            ConnectTarget::Tcp(addr) => {
+                Self::connect_tcp(&addr, config.timeout()).map_err(Into::into)
+            }
+            #[cfg(feature = "ssl")]
+            ConnectTarget::Ssl(addr) => {
+                Self::connect_ssl(&addr, config.validate_domain(), config.timeout())
+            }
+            #[cfg(not(feature = "ssl"))]
+            ConnectTarget::Ssl(_) => Err(crate::ConnectError::SslUnsupported),
+        }
+    }
+
+    /// Creates a new [`BlockingClient`] connected to `addr` over plaintext TCP.
+    #[allow(clippy::type_complexity)]
+    pub fn connect_tcp(
+        addr: &crate::transport::ServerAddr,
+        timeout: Option<Duration>,
+    ) -> io::Result<(
+        Self,
+        BlockingEventReceiver,
+        JoinHandle<io::Result<()>>,
+        JoinHandle<io::Result<()>>,
+    )> {
+        let stream = crate::transport::blocking::connect_tcp(addr, timeout)?;
+        let reader = stream.try_clone()?;
+        Ok(Self::new(reader, ShutdownOnDropTcpWriter(stream)))
+    }
+
+    /// Creates a new [`BlockingClient`] connected to `addr` over TLS.
+    ///
+    /// `timeout` bounds TCP connect and the TLS handshake.
+    /// `validate_domain` requires a domain host.
+    #[cfg(feature = "ssl")]
+    #[allow(clippy::type_complexity)]
+    pub fn connect_ssl(
+        addr: &crate::transport::ServerAddr,
+        validate_domain: bool,
+        timeout: Option<Duration>,
+    ) -> Result<
+        (
+            Self,
+            BlockingEventReceiver,
+            JoinHandle<io::Result<()>>,
+            JoinHandle<io::Result<()>>,
+        ),
+        crate::ConnectError,
+    > {
+        let stream = crate::transport::blocking::connect_ssl(addr, validate_domain, timeout)?;
+        let (reader, writer) = stream.into_split();
+        Ok(Self::new(reader, writer))
     }
 
     /// Sends a single tracked request to the Electrum server and waits for its response.
