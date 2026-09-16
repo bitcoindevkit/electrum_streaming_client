@@ -109,30 +109,6 @@ where
     Ok(weight)
 }
 
-pub fn amount_from_btc<'de, D>(deserializer: D) -> Result<bitcoin::Amount, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let btc = f64::deserialize(deserializer)?;
-    bitcoin::Amount::from_btc(btc).map_err(serde::de::Error::custom)
-}
-
-pub fn amount_from_sats<'de, D>(deserializer: D) -> Result<bitcoin::Amount, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let sats = u64::deserialize(deserializer)?;
-    Ok(bitcoin::Amount::from_sat(sats))
-}
-
-pub fn amount_from_maybe_negative_sats<'de, D>(deserializer: D) -> Result<bitcoin::Amount, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let sats = i64::deserialize(deserializer)?.unsigned_abs();
-    Ok(bitcoin::Amount::from_sat(sats))
-}
-
 pub fn all_inputs_confirmed_bool_from_height<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,

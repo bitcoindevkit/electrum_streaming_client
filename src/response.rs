@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use bitcoin::{
     absolute,
     hashes::{Hash, HashEngine},
-    Amount, BlockHash,
+    Amount, BlockHash, SignedAmount,
 };
 
 use crate::DoubleSHA;
@@ -137,7 +137,7 @@ pub struct HeadersSubscribeResp {
 #[serde(transparent)]
 pub struct RelayFeeResp {
     /// The minimum fee amount that the server will accept for relaying transactions.
-    #[serde(deserialize_with = "crate::custom_serde::amount_from_btc")]
+    #[serde(with = "bitcoin::amount::serde::as_btc")]
     pub fee: Amount,
 }
 
@@ -145,12 +145,14 @@ pub struct RelayFeeResp {
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct GetBalanceResp {
     /// The confirmed balance in satoshis.
-    #[serde(deserialize_with = "crate::custom_serde::amount_from_sats")]
+    #[serde(with = "bitcoin::amount::serde::as_sat")]
     pub confirmed: Amount,
 
-    /// The unconfirmed balance in satoshis (may be negative).
-    #[serde(deserialize_with = "crate::custom_serde::amount_from_maybe_negative_sats")]
-    pub unconfirmed: Amount,
+    /// The unconfirmed balance in satoshis.
+    ///
+    /// Can be negative when confirmed outputs are spent in the mempool.
+    #[serde(with = "bitcoin::amount::serde::as_sat")]
+    pub unconfirmed: SignedAmount,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -209,7 +211,7 @@ pub struct MempoolTx {
     pub txid: bitcoin::Txid,
 
     /// The fee paid by the transaction in satoshis.
-    #[serde(deserialize_with = "crate::custom_serde::amount_from_sats")]
+    #[serde(with = "bitcoin::amount::serde::as_sat")]
     pub fee: bitcoin::Amount,
 
     /// Whether all inputs are confirmed.
@@ -234,7 +236,7 @@ pub struct Utxo {
     pub txid: bitcoin::Txid,
 
     /// The value of the UTXO in satoshis.
-    #[serde(deserialize_with = "crate::custom_serde::amount_from_sats")]
+    #[serde(with = "bitcoin::amount::serde::as_sat")]
     pub value: bitcoin::Amount,
 }
 
@@ -393,4 +395,17 @@ pub struct ServerHostValues {
     pub ssl_port: Option<u16>,
     /// TCP Port.
     pub tcp_port: Option<u16>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_balance_preserves_negative_unconfirmed() {
+        let response: GetBalanceResp =
+            serde_json::from_str(r#"{"confirmed":0,"unconfirmed":-100}"#).unwrap();
+
+        assert_eq!(response.unconfirmed, SignedAmount::from_sat(-100));
+    }
 }

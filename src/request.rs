@@ -326,8 +326,8 @@ impl Request for RelayFee {
 /// A request for the confirmed and unconfirmed balance of a specific script hash.
 ///
 /// This corresponds to the `"blockchain.scripthash.get_balance"` Electrum RPC method. It returns
-/// both the confirmed balance (from mined transactions) and unconfirmed balance (from mempool
-/// transactions) for the provided script hash.
+/// the confirmed balance (from mined transactions) and the unconfirmed balance (from mempool transactions) for the
+/// provided script hash. The unconfirmed value is signed and can be negative if confirmed outputs are spent.
 ///
 /// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-scripthash-get-balance>
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
