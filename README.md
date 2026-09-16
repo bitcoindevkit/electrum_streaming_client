@@ -28,8 +28,10 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::spawn(worker); // spawn the client worker task
 
-    let relay_fee = client.send_request(electrum_streaming_client::request::RelayFee).await?;
-    println!("Relay fee: {relay_fee:?}");
+    let mempool_info = client
+        .send_request(electrum_streaming_client::request::GetMempoolInfo)
+        .await?;
+    println!("Mempool info: {mempool_info:?}");
 
     while let Some(event) = events.next().await {
         println!("Event: {event:?}");

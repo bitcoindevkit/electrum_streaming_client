@@ -97,11 +97,15 @@ gen_pending_request_types! {
     ScriptHashSubscribe,
     ScriptHashUnsubscribe,
     BroadcastTx,
+    BroadcastPackage,
     GetTx,
     GetTxMerkle,
     GetTxidFromPos,
     GetFeeHistogram,
+    GetMempoolInfo,
+    ServerVersion,
     Banner,
+    Features,
     Ping,
     Custom
 }
