@@ -1,0 +1,52 @@
+name: Latest dependencies
+
+# Weekly compatibility check: `cargo update` the whole graph and build/test
+# on the current stable compiler. A failure here can be caused by a new rustc
+# or by new dependency releases; it is informational and not part of the
+# required CI success aggregate.
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  latest:
+    name: Latest dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+          cache: true
+          cache-key: latest-stable
+          rustflags: ""
+
+      - name: Update dependencies
+        run: cargo update
+
+      - name: Build and test (no default features)
+        run: |
+          cargo build --locked --lib --no-default-features
+          cargo test --locked --all-targets --no-default-features
+          cargo test --locked --doc --no-default-features
+
+      - name: Build and test (all features)
+        run: |
+          cargo build --locked --lib --all-features
+          cargo test --locked --all-targets --all-features
+          cargo test --locked --doc --all-features
