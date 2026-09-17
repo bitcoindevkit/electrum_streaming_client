@@ -2,6 +2,7 @@ name: CI
 
 # Builds and tests both feature configurations on MSRV and pinned Rust.
 # Checks formatting, Clippy and documentation with the pinned toolchain.
+# Checks that pull request commits are signed.
 # Latest-dependency compatibility runs separately in latest_deps.yml.
 
 on:
@@ -135,11 +136,29 @@ jobs:
           FEATURES: ${{ matrix.features }}
         run: cargo doc --locked --no-deps "$FEATURES"
 
+  signed-commits:
+    name: Signed commits
+    # PRs only; push/workflow_dispatch skip this job (treated as skipped by CI success).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check commits are signed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: ./ci/check-signed-commits.sh "$BASE_SHA" "$HEAD_SHA"
+
   CI-success:
     name: CI success
     # Always evaluate results so failed or cancelled jobs cannot skip the required check.
     if: ${{ always() }}
-    needs: [build-test, fmt, clippy, docs]
+    needs: [build-test, fmt, clippy, docs, signed-commits]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -149,6 +168,7 @@ jobs:
           FMT: ${{ needs.fmt.result }}
           CLIPPY: ${{ needs.clippy.result }}
           DOCS: ${{ needs.docs.result }}
+          SIGNED_COMMITS: ${{ needs.signed-commits.result }}
         run: |
           failed=0
           check() {
@@ -157,8 +177,16 @@ jobs:
               failed=1
             fi
           }
+          # PR-only job: skipped on push is OK.
+          check_pr_only() {
+            printf '%s: %s\n' "$1" "$2"
+            if [ "$2" != success ] && [ "$2" != skipped ]; then
+              failed=1
+            fi
+          }
           check build-test "$BUILD_TEST"
           check fmt "$FMT"
           check clippy "$CLIPPY"
           check docs "$DOCS"
+          check_pr_only signed-commits "$SIGNED_COMMITS"
           exit "$failed"
