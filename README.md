@@ -15,7 +15,7 @@ models.
 
 ## Example (async with Tokio)
 
-```rust,no_run
+```rust,ignore
 use electrum_streaming_client::{AsyncClient, Event};
 use tokio::net::TcpStream;
 use futures::StreamExt;
@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
 
 ## Optional Features
 
-- `tokio`: Enables [`AsyncClient::new_tokio`] for use with Tokio-compatible streams.
+- `tokio`: Enables `AsyncClient::new_tokio` for use with Tokio-compatible streams.
 
 ## License
 

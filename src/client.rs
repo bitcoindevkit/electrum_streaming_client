@@ -45,7 +45,7 @@ pub type BlockingEventReceiver = std::sync::mpsc::Receiver<Event>;
 /// over any transport that implements [`AsyncBufRead`] and [`AsyncWrite`].
 ///
 /// To drive the client, you must poll the [`Future`] returned by [`AsyncClient::new`] or
-/// [`AsyncClient::new_tokio`]. This worker future handles reading and writing to the transport,
+/// `AsyncClient::new_tokio`. This worker future handles reading and writing to the transport,
 /// parsing server responses, and routing them to the internal state and event stream.
 ///
 /// Use the associated [`AsyncEventReceiver`] to receive [`Event`]s pushed by the server.
@@ -53,7 +53,8 @@ pub type BlockingEventReceiver = std::sync::mpsc::Receiver<Event>;
 ///
 /// ### Constructors
 /// - [`AsyncClient::new`] is runtime-agnostic and works with any `futures`-based transport.
-/// - [`AsyncClient::new_tokio`] enables integration with `tokio`-based I/O types.
+/// - `AsyncClient::new_tokio` enables integration with `tokio`-based I/O types (requires the
+///   `tokio` feature).
 ///
 /// [`Future`]: futures::Future
 /// [`Event`]: crate::Event
