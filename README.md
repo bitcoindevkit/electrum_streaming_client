@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
 
 ## Optional Features
 
-- `tokio`: Enables [`AsyncClient::new_tokio`] for use with Tokio-compatible streams.
+- `tokio`: Enables `AsyncClient::new_tokio` for use with Tokio-compatible streams.
 
 ## License
 
