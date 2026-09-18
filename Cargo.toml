@@ -21,6 +21,7 @@ tokio-util = { version = "0.7.15", features = ["compat"], optional = true }
 [features]
 default = ["tokio"]
 tokio = ["dep:tokio", "tokio-util"]
+frigate = []
 
 [dev-dependencies]
 async-std = "1.13.0"

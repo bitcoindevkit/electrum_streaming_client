@@ -17,7 +17,7 @@ pub trait RequestExt: Request + Sized {
 }
 
 macro_rules! gen_pending_request_types {
-    ($($name:ident),*) => {
+    ($($(#[$attr:meta])* $name:ident),* $(,)?) => {
         /// A successfully handled request and its decoded server response.
         ///
         /// This enum is returned when a request has been fully processed and the server replied
@@ -33,10 +33,13 @@ macro_rules! gen_pending_request_types {
         /// [`Event::Response`]: crate::Event::Response
         #[derive(Debug, Clone)]
         pub enum CompletedRequest {
-            $($name {
-                req: crate::request::$name,
-                resp: <crate::request::$name as Request>::Response,
-            }),*,
+            $(
+                $(#[$attr])*
+                $name {
+                    req: crate::request::$name,
+                    resp: <crate::request::$name as Request>::Response,
+                },
+            )*
         }
 
         /// A request that received an error response from the Electrum server.
@@ -53,16 +56,24 @@ macro_rules! gen_pending_request_types {
         /// [`Event::ResponseError`]: crate::Event::ResponseError
         #[derive(Debug, Clone)]
         pub enum FailedRequest {
-            $($name {
-                req: crate::request::$name,
-                error: ResponseError,
-            }),*,
+            $(
+                $(#[$attr])*
+                $name {
+                    req: crate::request::$name,
+                    error: ResponseError,
+                },
+            )*
         }
 
         impl core::fmt::Display for FailedRequest {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
-                    $(Self::$name { req, error } => write!(f, "Server responsed to {:?} with error: {}", req, error)),*,
+                    $(
+                        $(#[$attr])*
+                        Self::$name { req, error } => {
+                            write!(f, "Server responsed to {:?} with error: {}", req, error)
+                        }
+                    )*
                 }
             }
         }
@@ -70,6 +81,7 @@ macro_rules! gen_pending_request_types {
         impl std::error::Error for FailedRequest {}
 
         $(
+            $(#[$attr])*
             impl RequestExt for crate::request::$name {
                 fn into_completed(self, resp: <Self as Request>::Response) -> CompletedRequest {
                     CompletedRequest::$name { req: self, resp }
@@ -107,7 +119,9 @@ gen_pending_request_types! {
     Banner,
     Features,
     Ping,
-    Custom
+    Custom,
+    #[cfg(feature = "frigate")] SpSubscribe,
+    #[cfg(feature = "frigate")] SpUnsubscribe
 }
 
 type Handler =

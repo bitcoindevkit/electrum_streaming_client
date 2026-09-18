@@ -397,6 +397,34 @@ pub struct ServerHostValues {
     pub tcp_port: Option<u16>,
 }
 
+/// Response entry from the `"blockchain.silentpayments.subscribe"` method.
+#[cfg(feature = "frigate")]
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct SpSubscribeResp {
+    /// The silent payment address that has been subscribed.
+    pub address: String,
+
+    /// An array of the labels that are subscribed to (must include 0).
+    pub labels: Vec<u32>,
+
+    /// The block height from which the subscription scan was started.
+    pub start_height: u32,
+}
+
+/// A transaction returned by `"blockchain.silentpayments.subscribe"` notification.
+#[cfg(feature = "frigate")]
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TxTweak {
+    /// The block height at which the transaction was confirmed, or `0` for a mempool transaction.
+    pub height: u32,
+
+    /// The transaction hash in hexadecimal.
+    pub tx_hash: bitcoin::Txid,
+
+    /// The tweak key (input_hash*A) for the transaction in compressed format.
+    pub tweak_key: bitcoin::secp256k1::PublicKey,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
