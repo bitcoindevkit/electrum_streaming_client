@@ -1,0 +1,192 @@
+name: CI
+
+# Builds and tests both feature configurations on MSRV and pinned Rust.
+# Checks formatting, Clippy and documentation with the pinned toolchain.
+# Checks that pull request commits are signed.
+# Latest-dependency compatibility runs separately in latest_deps.yml.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  build-test:
+    name: Build and test (${{ matrix.rust }}, ${{ matrix.features }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [msrv, pinned]
+        features: ["--no-default-features", "--all-features"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read MSRV
+        if: matrix.rust == 'msrv'
+        id: msrv
+        run: |
+          msrv=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          if [ -z "$msrv" ]; then
+            echo "failed to read package rust-version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "msrv=$msrv" >> "$GITHUB_OUTPUT"
+
+      # MSRV overrides rust-toolchain.toml; an empty toolchain uses its pinned version.
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: ${{ matrix.rust == 'msrv' && steps.msrv.outputs.msrv || '' }}
+          cache: true
+          cache-key: ${{ matrix.rust }}-${{ matrix.features }}
+          rustflags: ""
+
+      - name: Pin dependencies for MSRV
+        if: matrix.rust == 'msrv'
+        run: ./ci/pin-msrv.sh
+
+      - name: Build and test
+        env:
+          FEATURES: ${{ matrix.features }}
+        run: |
+          cargo build --locked --lib "$FEATURES"
+          cargo test --locked --all-targets "$FEATURES"
+          cargo test --locked --doc "$FEATURES"
+
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          cache: false
+          rustflags: ""
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+  clippy:
+    name: Clippy (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["--no-default-features", "--all-features"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          cache: true
+          cache-key: clippy-${{ matrix.features }}
+          rustflags: ""
+      - name: Clippy
+        env:
+          FEATURES: ${{ matrix.features }}
+        run: cargo clippy --locked --all-targets "$FEATURES" -- -D warnings
+
+  docs:
+    name: Docs (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["--no-default-features", "--all-features"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          cache: true
+          cache-key: docs-${{ matrix.features }}
+          rustflags: ""
+      - name: Check docs
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+          FEATURES: ${{ matrix.features }}
+        run: cargo doc --locked --no-deps "$FEATURES"
+
+  signed-commits:
+    name: Signed commits
+    # PRs only; push/workflow_dispatch skip this job (treated as skipped by CI success).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check commits are signed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: ./ci/check-signed-commits.sh "$BASE_SHA" "$HEAD_SHA"
+
+  CI-success:
+    name: CI success
+    # Always evaluate results so failed or cancelled jobs cannot skip the required check.
+    if: ${{ always() }}
+    needs: [build-test, fmt, clippy, docs, signed-commits]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all needed jobs
+        env:
+          BUILD_TEST: ${{ needs.build-test.result }}
+          FMT: ${{ needs.fmt.result }}
+          CLIPPY: ${{ needs.clippy.result }}
+          DOCS: ${{ needs.docs.result }}
+          SIGNED_COMMITS: ${{ needs.signed-commits.result }}
+        run: |
+          failed=0
+          check() {
+            printf '%s: %s\n' "$1" "$2"
+            if [ "$2" != success ]; then
+              failed=1
+            fi
+          }
+          # PR-only job: skipped on push is OK.
+          check_pr_only() {
+            printf '%s: %s\n' "$1" "$2"
+            if [ "$2" != success ] && [ "$2" != skipped ]; then
+              failed=1
+            fi
+          }
+          check build-test "$BUILD_TEST"
+          check fmt "$FMT"
+          check clippy "$CLIPPY"
+          check docs "$DOCS"
+          check_pr_only signed-commits "$SIGNED_COMMITS"
+          exit "$failed"
