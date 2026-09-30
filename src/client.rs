@@ -437,3 +437,87 @@ impl BlockingClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_authorization, AuthProvider, RawOneOrMany, RawRequest};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    #[test]
+    fn auth_single_request() {
+        let provider: AuthProvider = Arc::new(|| Some("test-token".into()));
+        let request = RawRequest::new(1, "blockchain.block.header".into(), vec![42.into()]);
+
+        let message = apply_authorization(RawOneOrMany::Single(request), Some(&provider));
+
+        let RawOneOrMany::Single(request) = message else {
+            panic!("expected a single request");
+        };
+        assert_eq!(request.authorization.as_deref(), Some("test-token"));
+        assert_eq!(request.jsonrpc, "2.0");
+        assert_eq!(request.id, 1);
+        assert_eq!(request.method, "blockchain.block.header");
+        assert_eq!(request.params, vec![serde_json::json!(42)]);
+    }
+
+    #[test]
+    fn auth_batch_request() {
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let provider_call_count = call_count.clone();
+        let provider: AuthProvider = Arc::new(move || {
+            let call = provider_call_count.fetch_add(1, Ordering::Relaxed) + 1;
+            Some(format!("test-token-{call}"))
+        });
+
+        let requests = vec![
+            RawRequest::new(1, "blockchain.block.header".into(), vec![42.into()]),
+            RawRequest::new(2, "server.ping".into(), vec![]),
+        ];
+
+        let requests_with_auth =
+            apply_authorization(RawOneOrMany::Batch(requests.clone()), Some(&provider));
+
+        let RawOneOrMany::Batch(batch) = requests_with_auth else {
+            panic!("expected a batch of requests");
+        };
+        // assert that the provider is called only once
+        assert_eq!(call_count.load(Ordering::Relaxed), 1);
+        assert_eq!(batch.len(), requests.len());
+        for (request, original) in batch.iter().zip(&requests) {
+            // auth is applied to each request in the batch
+            assert_eq!(request.authorization.as_deref(), Some("test-token-1"));
+            assert_eq!(request.jsonrpc, original.jsonrpc);
+            assert_eq!(request.id, original.id);
+            assert_eq!(request.method, original.method);
+            assert_eq!(request.params, original.params);
+        }
+    }
+
+    #[test]
+    fn auth_without_provider() {
+        let request = RawRequest::new(1, "server.ping".into(), vec![]);
+
+        let message = apply_authorization(RawOneOrMany::Single(request), None);
+
+        let RawOneOrMany::Single(request) = message else {
+            panic!("expected a single request");
+        };
+        assert_eq!(request.authorization, None);
+    }
+
+    #[test]
+    fn auth_provider_returns_none() {
+        let provider: AuthProvider = Arc::new(|| None);
+        let request = RawRequest::new(1, "server.ping".into(), vec![]);
+
+        let message = apply_authorization(RawOneOrMany::Single(request), Some(&provider));
+
+        let RawOneOrMany::Single(request) = message else {
+            panic!("expected a single request");
+        };
+        assert_eq!(request.authorization, None);
+    }
+}
