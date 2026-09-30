@@ -39,6 +39,15 @@ pub type BlockingRequestSendError = std::sync::mpsc::SendError<RawOneOrMany<Pend
 /// Channel receiver used to receive [`Event`]s from the Electrum server.
 pub type BlockingEventReceiver = std::sync::mpsc::Receiver<Event>;
 
+/// Adds the token to every request.
+fn apply_authorization(
+    message: RawOneOrMany<RawRequest>,
+    auth_provider: Option<&AuthProvider>,
+) -> RawOneOrMany<RawRequest> {
+    let authorization = auth_provider.and_then(|provider| provider());
+    message.map(|request| request.with_auth(authorization.clone()))
+}
+
 /// An asynchronous Electrum client built on the [`futures`] I/O ecosystem.
 ///
 /// This client allows sending JSON-RPC requests and receiving [`Event`]s from an Electrum server
@@ -91,6 +100,7 @@ impl AsyncClient {
     pub fn new<R, W>(
         reader: R,
         mut writer: W,
+        auth_provider: Option<AuthProvider>,
     ) -> (
         Self,
         AsyncEventReceiver,
@@ -115,6 +125,7 @@ impl AsyncClient {
                     req_opt = req_recv.next() => match req_opt {
                         Some(req) => {
                             let raw_req = state.track_request(&mut next_id, req);
+                            let raw_req = apply_authorization(raw_req, auth_provider.as_ref());
                             crate::io::async_write(&mut writer, raw_req).await?;
                         },
                         None => break,
@@ -161,6 +172,7 @@ impl AsyncClient {
     pub fn new_tokio<R, W>(
         reader: R,
         writer: W,
+        auth_provider: Option<AuthProvider>,
     ) -> (
         Self,
         AsyncEventReceiver,
@@ -171,7 +183,7 @@ impl AsyncClient {
         W: tokio::io::AsyncWrite + Send + Unpin,
     {
         use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-        Self::new(reader.compat(), writer.compat_write())
+        Self::new(reader.compat(), writer.compat_write(), auth_provider)
     }
 
     /// Close the channel.
@@ -301,6 +313,7 @@ impl BlockingClient {
     pub fn new<R, W>(
         reader: R,
         mut writer: W,
+        auth_provider: Option<AuthProvider>,
     ) -> (
         Self,
         BlockingEventReceiver,
@@ -337,6 +350,7 @@ impl BlockingClient {
             let mut next_id = 0_u32;
             for req in req_recv {
                 let raw_req = write_state.lock().unwrap().track_request(&mut next_id, req);
+                let raw_req = apply_authorization(raw_req, auth_provider.as_ref());
                 crate::io::blocking_write(&mut writer, raw_req)?;
             }
             Ok(())

@@ -27,7 +27,7 @@ fn synopsis() -> anyhow::Result<()> {
     block_on(async {
         let stream = TcpStream::connect(electrum_addr.as_str()).await?;
         let (read_stream, write_strean) = stream.split();
-        let (client, mut event_rx, run_fut) = AsyncClient::new(read_stream, write_strean);
+        let (client, mut event_rx, run_fut) = AsyncClient::new(read_stream, write_strean, None);
         let run_handle = pool.spawn_with_handle(run_fut)?;
 
         client.send_event_request(request::HeadersSubscribe)?;

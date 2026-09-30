@@ -13,6 +13,8 @@ use crate::{CowStr, Request};
 /// Always set to `"2.0"` per the Electrum protocol specification.
 pub const JSONRPC_VERSION_2_0: &str = "2.0";
 
+const REDACTED_AUTHORIZATION: &str = "<redacted>";
+
 /// Represents the `jsonrpc` version field in JSON-RPC messages.
 ///
 /// In Electrum, this is always the string `"2.0"`, as required by the JSON-RPC 2.0 specification.
@@ -95,7 +97,7 @@ pub enum RawIncoming {
 ///
 /// This struct is constructed before serialization and sending. It includes all required
 /// JSON-RPC fields for method calls.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct RawRequest {
     /// The JSON-RPC version string (usually `"2.0"`).
     pub jsonrpc: CowStr,
@@ -108,23 +110,49 @@ pub struct RawRequest {
 
     /// The parameters passed to the method.
     pub params: Vec<Value>,
+
+    /// Optional authorization token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization: Option<String>,
 }
 
 impl RawRequest {
     /// Constructs a new JSON-RPC request with the given ID, method, and parameters.
     ///
-    /// This sets the JSON-RPC version to `"2.0"`.
+    /// Uses JSON-RPC `"2.0"`. Use [`Self::with_auth`] to set authorization.
     pub fn new(id: u32, method: CowStr, params: Vec<Value>) -> Self {
         Self {
             jsonrpc: JSONRPC_VERSION_2_0.into(),
             id,
             method,
             params,
+            authorization: None,
         }
+    }
+
+    /// Sets or clears the authorization token.
+    pub fn with_auth(mut self, authorization: Option<String>) -> Self {
+        self.authorization = authorization;
+        self
     }
 
     pub fn from_request<Req: Request>(id: u32, req: Req) -> Self {
         (id, req).into()
+    }
+}
+
+impl std::fmt::Debug for RawRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RawRequest")
+            .field("jsonrpc", &self.jsonrpc)
+            .field("id", &self.id)
+            .field("method", &self.method)
+            .field("params", &self.params)
+            .field(
+                "authorization",
+                &self.authorization.as_ref().map(|_| REDACTED_AUTHORIZATION),
+            )
+            .finish()
     }
 }
 

@@ -87,6 +87,8 @@ impl RequestTracker {
     ///
     /// Each item in the iterator is a [`RawRequest`] containing the request ID, method name,
     /// and parameters, which can be serialized and sent to the Electrum server.
+    ///
+    /// Authorization is unset. Use [`RawRequest::with_auth`] to add a token if needed.
     pub fn pending_requests(&self) -> impl Iterator<Item = RawRequest> + '_ {
         self.pending.iter().map(|(&id, pending_req)| {
             let (method, params) = pending_req.to_method_and_params();
@@ -102,6 +104,8 @@ impl RequestTracker {
     ///
     /// Returns a [`RawOneOrMany<RawRequest>`], preserving whether the input was a single request or a
     /// batch.
+    ///
+    /// Authorization is unset. Use [`RawRequest::with_auth`] to add a token if needed.
     pub fn track_request<R>(&mut self, next_id: &mut u32, req: R) -> RawOneOrMany<RawRequest>
     where
         R: Into<RawOneOrMany<PendingRequest>>,
