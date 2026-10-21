@@ -110,6 +110,7 @@ gen_pending_request_types! {
     ScriptHashUnsubscribe,
     BroadcastTx,
     BroadcastPackage,
+    BroadcastPackageVerbose,
     GetTx,
     GetTxMerkle,
     GetTxidFromPos,

@@ -651,6 +651,31 @@ impl Request for BroadcastPackage {
     }
 }
 
+/// A request to broadcast a package of transactions and return the server's verbose result.
+///
+/// This corresponds to the `"blockchain.transaction.broadcast_package"` Electrum RPC method
+/// with its `verbose` argument set to `true`. The result is implementation and version-specific,
+/// so it is returned as a raw JSON value. It is primarily useful for debugging package relay.
+///
+/// Added in Electrum protocol v1.6.
+///
+/// See: <https://electrum-protocol.readthedocs.io/en/latest/protocol-methods.html#blockchain-transaction-broadcast-package>
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BroadcastPackageVerbose(pub Vec<bitcoin::Transaction>);
+
+impl Request for BroadcastPackageVerbose {
+    type Response = serde_json::Value;
+
+    fn to_method_and_params(&self) -> MethodAndParams {
+        let txs: Vec<serde_json::Value> =
+            self.0.iter().map(|tx| serialize_hex(tx).into()).collect();
+        (
+            "blockchain.transaction.broadcast_package".into(),
+            vec![txs.into(), true.into()],
+        )
+    }
+}
+
 /// A request for the current mempool fee histogram.
 ///
 /// This corresponds to the `"mempool.get_fee_histogram"` Electrum RPC method. It returns a compact
