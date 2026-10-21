@@ -1,0 +1,60 @@
+name: Workflow checks
+
+# Actionlint plus blocking Zizmor. SARIF is also uploaded for the security
+# dashboard; reporting failures are nonblocking and cannot hide findings.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  workflow-checks:
+    name: Workflow checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Actionlint and Zizmor
+        uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
+        with:
+          tool: actionlint@1.7.12,zizmor@1.30.0
+
+      - name: Actionlint
+        run: actionlint
+
+      - name: Zizmor
+        if: '!cancelled()'
+        run: zizmor --format=github .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Zizmor SARIF
+        if: '!cancelled()'
+        continue-on-error: true
+        run: zizmor --format=sarif . > results.sarif
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload SARIF file
+        if: '!cancelled()'
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: results.sarif
+          category: zizmor
