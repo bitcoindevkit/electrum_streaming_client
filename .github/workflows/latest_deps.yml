@@ -2,8 +2,7 @@ name: Latest dependencies
 
 # Weekly compatibility check: `cargo update` the whole graph and build/test
 # on the current stable compiler. A failure here can be caused by a new rustc
-# or by new dependency releases; it is informational and not part of the
-# required CI success aggregate.
+# or by new dependency releases; it is informational only.
 
 on:
   schedule:
