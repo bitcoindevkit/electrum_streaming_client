@@ -25,7 +25,7 @@ env:
 
 jobs:
   build-test:
-    name: Build and test (${{ matrix.rust }}, ${{ matrix.features }})
+    name: ${{ matrix.rust == 'msrv' && 'Build' || 'Build and test' }} (${{ matrix.rust }}, ${{ matrix.features }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
