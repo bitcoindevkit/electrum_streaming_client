@@ -101,7 +101,7 @@ impl AsyncClient {
         R: futures::AsyncRead + Send + Unpin,
         W: futures::AsyncWrite + Send + Unpin,
     {
-        use futures::{channel::mpsc, StreamExt};
+        use futures::{channel::mpsc, AsyncWriteExt, StreamExt};
         let (event_tx, event_recv) = mpsc::unbounded::<Event>();
         let (req_tx, mut req_recv) = mpsc::unbounded::<RawOneOrMany<PendingRequest>>();
 
@@ -116,7 +116,7 @@ impl AsyncClient {
                     req_opt = req_recv.next() => match req_opt {
                         Some(req) => {
                             let raw_req = state.track_request(&mut next_id, req);
-                            crate::io::async_write(&mut writer, raw_req).await?;
+                            writer.write_all(&crate::io::encode(raw_req)).await?;
                         },
                         None => break,
                     },
@@ -338,7 +338,7 @@ impl BlockingClient {
             let mut next_id = 0_u32;
             for req in req_recv {
                 let raw_req = write_state.lock().unwrap().track_request(&mut next_id, req);
-                crate::io::blocking_write(&mut writer, raw_req)?;
+                std::io::Write::write_all(&mut writer, &crate::io::encode(raw_req))?;
             }
             Ok(())
         });

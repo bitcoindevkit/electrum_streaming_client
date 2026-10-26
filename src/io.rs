@@ -219,60 +219,6 @@ pub fn encode<T: Into<RawOneOrMany<RawRequest>>>(msg: T) -> Vec<u8> {
     b
 }
 
-/// Writes a JSON-RPC request or batch to a blocking writer, followed by a newline.
-///
-/// The message is serialized using `serde_json` and written as a single line,
-/// terminated by `\n`, to comply with Electrum's line-delimited JSON-RPC protocol.
-///
-/// Returns an error if writing to the underlying writer fails.
-///
-/// # Parameters
-/// - `writer`: A blocking writer implementing [`std::io::Write`].
-/// - `msg`: A single or batched [`RawRequest`] to be serialized.
-///
-/// # Errors
-/// Returns a [`std::io::Error`] if the write operation fails.
-pub fn blocking_write<W, T>(mut writer: W, msg: T) -> std::io::Result<()>
-where
-    T: Into<RawOneOrMany<RawRequest>>,
-    W: std::io::Write,
-{
-    writer.write_all(&encode(msg))
-}
-
-/// Asynchronously writes a JSON-RPC request or batch to an async writer, followed by a newline.
-///
-/// The message is serialized using `serde_json` and written as a single line terminated by `\n`,
-/// following Electrum's line-delimited JSON-RPC protocol.
-///
-/// # Parameters
-/// - `writer`: An async writer implementing [`futures::io::AsyncWrite`] + [`Unpin`].
-/// - `msg`: A single or batched [`RawRequest`] to be serialized.
-///
-/// # Errors
-/// Returns a [`std::io::Error`] if the async write operation fails.
-pub async fn async_write<W, T>(mut writer: W, msg: T) -> std::io::Result<()>
-where
-    T: Into<RawOneOrMany<RawRequest>>,
-    W: futures::AsyncWrite + Unpin,
-{
-    use futures::AsyncWriteExt;
-    writer.write_all(&encode(msg)).await
-}
-
-/// Asynchronously writes a JSON-RPC request or batch to a tokio async writer, followed by a newline.
-///
-/// This is the `"tokio"` version of [`async_write`].
-#[cfg(feature = "tokio")]
-pub async fn tokio_write<W, T>(mut writer: W, msg: T) -> std::io::Result<()>
-where
-    T: Into<RawOneOrMany<RawRequest>>,
-    W: tokio::io::AsyncWrite + Unpin,
-{
-    use tokio::io::AsyncWriteExt;
-    writer.write_all(&encode(msg)).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
