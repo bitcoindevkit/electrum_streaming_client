@@ -124,7 +124,7 @@ impl AsyncClient {
                         Some(incoming_res) => {
                             let event_opt = state
                                 .handle_incoming(incoming_res?)
-                                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+                                .map_err(std::io::Error::other)?;
                             if let Some(event) = event_opt {
                                 if let Err(_err) = event_tx.unbounded_send(event) {
                                     break;
@@ -325,7 +325,7 @@ impl BlockingClient {
                     .lock()
                     .unwrap()
                     .handle_incoming(incoming_res?)
-                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+                    .map_err(std::io::Error::other)?;
                 if let Some(event) = event_opt {
                     if let Err(_err) = event_tx.send(event) {
                         break;
