@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use crate::*;
 use bitcoin::block::Header;
 use notification::Notification;
