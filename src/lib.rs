@@ -20,6 +20,9 @@ pub use request::Request;
 pub use request_tracker::*;
 pub use serde_json;
 
+/// A callback that provides the current authorization token.
+pub type AuthProvider = std::sync::Arc<dyn Fn() -> Option<String> + Send + Sync>;
+
 /// An owned or borrowed static string.
 pub type CowStr = std::borrow::Cow<'static, str>;
 

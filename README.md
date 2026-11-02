@@ -24,7 +24,7 @@ use futures::StreamExt;
 async fn main() -> anyhow::Result<()> {
     let stream = TcpStream::connect("127.0.0.1:50001").await?;
     let (reader, writer) = stream.into_split();
-    let (client, mut events, worker) = AsyncClient::new_tokio(reader, writer);
+    let (client, mut events, worker) = AsyncClient::new_tokio(reader, writer, None);
 
     tokio::spawn(worker); // spawn the client worker task
 

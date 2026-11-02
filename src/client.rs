@@ -39,6 +39,15 @@ pub type BlockingRequestSendError = std::sync::mpsc::SendError<RawOneOrMany<Pend
 /// Channel receiver used to receive [`Event`]s from the Electrum server.
 pub type BlockingEventReceiver = std::sync::mpsc::Receiver<Event>;
 
+/// Adds the token to every request.
+fn apply_authorization(
+    message: RawOneOrMany<RawRequest>,
+    auth_provider: Option<&AuthProvider>,
+) -> RawOneOrMany<RawRequest> {
+    let authorization = auth_provider.and_then(|provider| provider());
+    message.map(|request| request.with_auth(authorization.clone()))
+}
+
 /// An asynchronous Electrum client built on the [`futures`] I/O ecosystem.
 ///
 /// This client allows sending JSON-RPC requests and receiving [`Event`]s from an Electrum server
@@ -92,6 +101,7 @@ impl AsyncClient {
     pub fn new<R, W>(
         reader: R,
         mut writer: W,
+        auth_provider: Option<AuthProvider>,
     ) -> (
         Self,
         AsyncEventReceiver,
@@ -116,6 +126,7 @@ impl AsyncClient {
                     req_opt = req_recv.next() => match req_opt {
                         Some(req) => {
                             let raw_req = state.track_request(&mut next_id, req);
+                            let raw_req = apply_authorization(raw_req, auth_provider.as_ref());
                             crate::io::async_write(&mut writer, raw_req).await?;
                         },
                         None => break,
@@ -162,6 +173,7 @@ impl AsyncClient {
     pub fn new_tokio<R, W>(
         reader: R,
         writer: W,
+        auth_provider: Option<AuthProvider>,
     ) -> (
         Self,
         AsyncEventReceiver,
@@ -172,7 +184,7 @@ impl AsyncClient {
         W: tokio::io::AsyncWrite + Send + Unpin,
     {
         use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-        Self::new(reader.compat(), writer.compat_write())
+        Self::new(reader.compat(), writer.compat_write(), auth_provider)
     }
 
     /// Close the channel.
@@ -302,6 +314,7 @@ impl BlockingClient {
     pub fn new<R, W>(
         reader: R,
         mut writer: W,
+        auth_provider: Option<AuthProvider>,
     ) -> (
         Self,
         BlockingEventReceiver,
@@ -338,6 +351,7 @@ impl BlockingClient {
             let mut next_id = 0_u32;
             for req in req_recv {
                 let raw_req = write_state.lock().unwrap().track_request(&mut next_id, req);
+                let raw_req = apply_authorization(raw_req, auth_provider.as_ref());
                 crate::io::blocking_write(&mut writer, raw_req)?;
             }
             Ok(())
@@ -422,5 +436,89 @@ impl BlockingClient {
             Some(batch) => self.tx.send(batch).map(|_| true),
             None => Ok(false),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_authorization, AuthProvider, RawOneOrMany, RawRequest};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    #[test]
+    fn auth_single_request() {
+        let provider: AuthProvider = Arc::new(|| Some("test-token".into()));
+        let request = RawRequest::new(1, "blockchain.block.header".into(), vec![42.into()]);
+
+        let message = apply_authorization(RawOneOrMany::Single(request), Some(&provider));
+
+        let RawOneOrMany::Single(request) = message else {
+            panic!("expected a single request");
+        };
+        assert_eq!(request.authorization.as_deref(), Some("test-token"));
+        assert_eq!(request.jsonrpc, "2.0");
+        assert_eq!(request.id, 1);
+        assert_eq!(request.method, "blockchain.block.header");
+        assert_eq!(request.params, vec![serde_json::json!(42)]);
+    }
+
+    #[test]
+    fn auth_batch_request() {
+        let call_count = Arc::new(AtomicUsize::new(0));
+        let provider_call_count = call_count.clone();
+        let provider: AuthProvider = Arc::new(move || {
+            let call = provider_call_count.fetch_add(1, Ordering::Relaxed) + 1;
+            Some(format!("test-token-{call}"))
+        });
+
+        let requests = vec![
+            RawRequest::new(1, "blockchain.block.header".into(), vec![42.into()]),
+            RawRequest::new(2, "server.ping".into(), vec![]),
+        ];
+
+        let requests_with_auth =
+            apply_authorization(RawOneOrMany::Batch(requests.clone()), Some(&provider));
+
+        let RawOneOrMany::Batch(batch) = requests_with_auth else {
+            panic!("expected a batch of requests");
+        };
+        // assert that the provider is called only once
+        assert_eq!(call_count.load(Ordering::Relaxed), 1);
+        assert_eq!(batch.len(), requests.len());
+        for (request, original) in batch.iter().zip(&requests) {
+            // auth is applied to each request in the batch
+            assert_eq!(request.authorization.as_deref(), Some("test-token-1"));
+            assert_eq!(request.jsonrpc, original.jsonrpc);
+            assert_eq!(request.id, original.id);
+            assert_eq!(request.method, original.method);
+            assert_eq!(request.params, original.params);
+        }
+    }
+
+    #[test]
+    fn auth_without_provider() {
+        let request = RawRequest::new(1, "server.ping".into(), vec![]);
+
+        let message = apply_authorization(RawOneOrMany::Single(request), None);
+
+        let RawOneOrMany::Single(request) = message else {
+            panic!("expected a single request");
+        };
+        assert_eq!(request.authorization, None);
+    }
+
+    #[test]
+    fn auth_provider_returns_none() {
+        let provider: AuthProvider = Arc::new(|| None);
+        let request = RawRequest::new(1, "server.ping".into(), vec![]);
+
+        let message = apply_authorization(RawOneOrMany::Single(request), Some(&provider));
+
+        let RawOneOrMany::Single(request) = message else {
+            panic!("expected a single request");
+        };
+        assert_eq!(request.authorization, None);
     }
 }
