@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Low-level JSON-RPC protocol types for the Electrum wire format.
 //!
 //! This module defines the raw message types exchanged between client and server,

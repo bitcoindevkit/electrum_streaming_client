@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Low-level I/O utilities for reading and writing Electrum JSON-RPC messages.
 //!
 //! This module provides core types and functions for serializing and deserializing Electrum

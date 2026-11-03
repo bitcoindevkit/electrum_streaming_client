@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Defines the request abstraction used to interact with the Electrum server.
 //!
 //! This module provides the [`Request`] trait, which describes a type-safe wrapper around an
