@@ -1,22 +1,44 @@
 use crate::pending_request::{PendingRequest, RequestExt};
 use crate::*;
 
+/// A message sent from a client handle ([`AsyncClient`] or [`BlockingClient`]) to its worker.
+pub enum Command {
+    /// Send one or more requests to the Electrum server.
+    ///
+    /// These requests are forwarded to [`RequestTracker::track_request`] to be assigned an ID and
+    /// serialized.
+    Request(RawOneOrMany<PendingRequest>),
+
+    /// Set or clear the authorization token attached to requests.
+    SetAuthorization(Option<String>),
+}
+
+impl std::fmt::Debug for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Request(req) => f.debug_tuple("Request").field(req).finish(),
+            Self::SetAuthorization(authorization) => f
+                .debug_tuple("SetAuthorization")
+                .field(&authorization.as_ref().map(|_| REDACTED_AUTHORIZATION))
+                .finish(),
+        }
+    }
+}
+
 // --- Async client type aliases ---
 
-/// The sending half of the channel used to enqueue one or more requests from [`AsyncClient`].
-///
-/// These requests are processed and forwarded to [`RequestTracker::track_request`] to be assigned an ID and serialized.
-pub type AsyncRequestSender = futures::channel::mpsc::UnboundedSender<RawOneOrMany<PendingRequest>>;
+/// The sending half of the channel used to send [`Command`]s from [`AsyncClient`] to its worker.
+pub type AsyncRequestSender = futures::channel::mpsc::UnboundedSender<Command>;
 
 /// The error returned by [`AsyncClient::send_request`] when a request fails.
 ///
 /// This may occur if the server responds with an error, the request is canceled, or the client is shut down.
 pub type AsyncRequestError = crate::request::Error<AsyncRequestSendError>;
 
-/// The error that occurs when a request cannot be sent into the async request channel.
+/// The error that occurs when a [`Command`] cannot be sent into the async request channel.
 ///
 /// This typically means the client's background task has shut down or the queue is disconnected.
-pub type AsyncRequestSendError = futures::channel::mpsc::TrySendError<RawOneOrMany<PendingRequest>>;
+pub type AsyncRequestSendError = futures::channel::mpsc::TrySendError<Command>;
 
 /// The receiving half of the internal event stream, returned to users of [`AsyncClient`].
 ///
@@ -25,16 +47,16 @@ pub type AsyncEventReceiver = futures::channel::mpsc::UnboundedReceiver<Event>;
 
 // --- Blocking client type aliases ---
 
-/// Channel sender for sending blocking requests from [`BlockingClient`] to the write thread.
-pub type BlockingRequestSender = std::sync::mpsc::Sender<RawOneOrMany<PendingRequest>>;
+/// Channel sender for sending [`Command`]s from [`BlockingClient`] to the write thread.
+pub type BlockingRequestSender = std::sync::mpsc::Sender<Command>;
 
 /// Error returned by [`BlockingClient::send_request`] if the request fails or is canceled.
 pub type BlockingRequestError = crate::request::Error<BlockingRequestSendError>;
 
-/// Error that occurs when a blocking request cannot be sent to the internal request channel.
+/// Error that occurs when a [`Command`] cannot be sent to the internal request channel.
 ///
 /// Typically indicates that the client has been shut down.
-pub type BlockingRequestSendError = std::sync::mpsc::SendError<RawOneOrMany<PendingRequest>>;
+pub type BlockingRequestSendError = std::sync::mpsc::SendError<Command>;
 
 /// Channel receiver used to receive [`Event`]s from the Electrum server.
 pub type BlockingEventReceiver = std::sync::mpsc::Receiver<Event>;
@@ -103,20 +125,26 @@ impl AsyncClient {
     {
         use futures::{channel::mpsc, StreamExt};
         let (event_tx, event_recv) = mpsc::unbounded::<Event>();
-        let (req_tx, mut req_recv) = mpsc::unbounded::<RawOneOrMany<PendingRequest>>();
+        let (cmd_tx, mut cmd_recv) = mpsc::unbounded::<Command>();
 
         let mut incoming_stream =
             crate::io::ReadStreamer::new(futures::io::BufReader::new(reader)).fuse();
         let mut state = RequestTracker::new();
         let mut next_id = 0_u32;
+        let mut authorization = None::<String>;
 
         let fut = async move {
             loop {
                 futures::select! {
-                    req_opt = req_recv.next() => match req_opt {
-                        Some(req) => {
-                            let raw_req = state.track_request(&mut next_id, req);
+                    cmd_opt = cmd_recv.next() => match cmd_opt {
+                        Some(Command::Request(req)) => {
+                            let raw_req = state
+                                .track_request(&mut next_id, req)
+                                .map(|raw_req| raw_req.with_auth(authorization.clone()));
                             crate::io::async_write(&mut writer, raw_req).await?;
+                        },
+                        Some(Command::SetAuthorization(new_authorization)) => {
+                            authorization = new_authorization;
                         },
                         None => break,
                     },
@@ -138,7 +166,7 @@ impl AsyncClient {
             std::io::Result::<()>::Ok(())
         };
 
-        (Self { tx: req_tx }, event_recv, fut)
+        (Self { tx: cmd_tx }, event_recv, fut)
     }
 
     /// Creates a new [`AsyncClient`] using Tokio-based I/O types.
@@ -178,6 +206,24 @@ impl AsyncClient {
     /// Close the channel.
     pub fn close(&self) {
         self.tx.close_channel();
+    }
+
+    /// Sets or clears the authorization token attached to requests.
+    ///
+    /// The token is attached to every request sent after this call, including each request of a
+    /// batch, until it is replaced or cleared with `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AsyncRequestSendError`] if the token could not be queued for the worker.
+    ///
+    /// [`AsyncRequestSendError`]: crate::AsyncRequestSendError
+    pub fn set_authorization(
+        &self,
+        authorization: Option<String>,
+    ) -> Result<(), AsyncRequestSendError> {
+        self.tx
+            .unbounded_send(Command::SetAuthorization(authorization))
     }
 
     /// Sends a single tracked request to the Electrum server and awaits the response.
@@ -251,7 +297,10 @@ impl AsyncClient {
     /// [`AsyncEventReceiver`]: crate::client::AsyncEventReceiver
     pub fn send_batch(&self, batch_req: BatchRequest) -> Result<bool, AsyncRequestSendError> {
         match batch_req.into_inner() {
-            Some(batch) => self.tx.unbounded_send(batch).map(|_| true),
+            Some(batch) => self
+                .tx
+                .unbounded_send(Command::Request(batch))
+                .map(|_| true),
             None => Ok(false),
         }
     }
@@ -314,7 +363,7 @@ impl BlockingClient {
     {
         use std::sync::mpsc::*;
         let (event_tx, event_recv) = channel::<Event>();
-        let (req_tx, req_recv) = channel::<RawOneOrMany<PendingRequest>>();
+        let (cmd_tx, cmd_recv) = channel::<Command>();
         let incoming_stream = crate::io::ReadStreamer::new(std::io::BufReader::new(reader));
         let read_state = std::sync::Arc::new(std::sync::Mutex::new(RequestTracker::new()));
         let write_state = std::sync::Arc::clone(&read_state);
@@ -336,13 +385,42 @@ impl BlockingClient {
         });
         let write_join = std::thread::spawn(move || -> std::io::Result<()> {
             let mut next_id = 0_u32;
-            for req in req_recv {
-                let raw_req = write_state.lock().unwrap().track_request(&mut next_id, req);
-                crate::io::blocking_write(&mut writer, raw_req)?;
+            let mut authorization = None::<String>;
+            for cmd in cmd_recv {
+                match cmd {
+                    Command::Request(req) => {
+                        let raw_req = write_state
+                            .lock()
+                            .unwrap()
+                            .track_request(&mut next_id, req)
+                            .map(|raw_req| raw_req.with_auth(authorization.clone()));
+                        crate::io::blocking_write(&mut writer, raw_req)?;
+                    }
+                    Command::SetAuthorization(new_authorization) => {
+                        authorization = new_authorization;
+                    }
+                }
             }
             Ok(())
         });
-        (Self { tx: req_tx }, event_recv, read_join, write_join)
+        (Self { tx: cmd_tx }, event_recv, read_join, write_join)
+    }
+
+    /// Sets or clears the authorization token attached to requests.
+    ///
+    /// The token is attached to every request sent after this call, including each request of a
+    /// batch, until it is replaced or cleared with `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockingRequestSendError`] if the token could not be queued for the write thread.
+    ///
+    /// [`BlockingRequestSendError`]: crate::BlockingRequestSendError
+    pub fn set_authorization(
+        &self,
+        authorization: Option<String>,
+    ) -> Result<(), BlockingRequestSendError> {
+        self.tx.send(Command::SetAuthorization(authorization))
     }
 
     /// Sends a single tracked request to the Electrum server and waits for its response.
@@ -419,7 +497,7 @@ impl BlockingClient {
     /// [`BlockingEventReceiver`]: crate::client::BlockingEventReceiver
     pub fn send_batch(&self, batch_req: BatchRequest) -> Result<bool, BlockingRequestSendError> {
         match batch_req.into_inner() {
-            Some(batch) => self.tx.send(batch).map(|_| true),
+            Some(batch) => self.tx.send(Command::Request(batch)).map(|_| true),
             None => Ok(false),
         }
     }
