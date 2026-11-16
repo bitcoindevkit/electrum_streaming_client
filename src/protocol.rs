@@ -233,3 +233,72 @@ impl std::fmt::Display for ResponseError {
 }
 
 impl std::error::Error for ResponseError {}
+
+#[cfg(test)]
+mod tests {
+    use super::RawRequest;
+
+    #[test]
+    fn serialization_without_auth() {
+        let request = RawRequest::new(1, "server.ping".into(), vec![]);
+        let json = serde_json::to_value(request).unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "server.ping",
+                "params": []
+            })
+        );
+    }
+
+    #[test]
+    fn serialization_with_auth() {
+        let request = RawRequest::new(1, "blockchain.block.header".into(), vec![42.into()])
+            .with_auth(Some("test-token".into()));
+        let json = serde_json::to_value(request).unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "blockchain.block.header",
+                "params": [42],
+                "authorization": "test-token"
+            })
+        );
+    }
+
+    #[test]
+    fn clearing_auth() {
+        let request = RawRequest::new(1, "server.ping".into(), vec![])
+            .with_auth(Some("test-token".into()))
+            .with_auth(None);
+        let json = serde_json::to_value(request).unwrap();
+
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "server.ping",
+                "params": []
+            })
+        );
+    }
+
+    #[test]
+    fn debug_redacts_auth() {
+        let token = "secret-token";
+        let request =
+            RawRequest::new(1, "server.ping".into(), vec![]).with_auth(Some(token.into()));
+
+        for debug in [format!("{request:?}"), format!("{request:#?}")] {
+            assert!(debug.contains("<redacted>"));
+            assert!(!debug.contains(token));
+        }
+    }
+}

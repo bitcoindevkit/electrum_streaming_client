@@ -502,3 +502,19 @@ impl BlockingClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Command;
+
+    #[test]
+    fn command_debug_redacts_auth() {
+        let token = "secret-token";
+        let command = Command::SetAuthorization(Some(token.into()));
+
+        for debug in [format!("{command:?}"), format!("{command:#?}")] {
+            assert!(debug.contains("<redacted>"));
+            assert!(!debug.contains(token));
+        }
+    }
+}
