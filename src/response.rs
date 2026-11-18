@@ -386,6 +386,9 @@ pub struct ServerFeatures {
 
     /// The pruning limit.
     pub pruning: Option<u32>,
+
+    /// Silent Payments protocol versions supported by the server.
+    pub silent_payments: Option<Vec<u32>>,
 }
 
 /// Server host values.
@@ -399,7 +402,7 @@ pub struct ServerHostValues {
 
 /// Response entry from the `"blockchain.silentpayments.subscribe"` method.
 #[cfg(feature = "frigate")]
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
 pub struct SpSubscribeResp {
     /// The silent payment address that has been subscribed.
     pub address: String,
