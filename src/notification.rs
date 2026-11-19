@@ -119,16 +119,29 @@ impl ScriptHashNotification {
 #[cfg(feature = "frigate")]
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct SpNotification {
-    /// Identifies the subscription to which this notification belongs.
-    pub subscription: response::SpSubscribeResp,
+    param_0: response::SpSubscribeResp,
+    param_1: f32,
+    param_2: Vec<response::TxTweak>,
+}
 
-    /// Historical scan progress from `0.0` through `1.0`.
+#[cfg(feature = "frigate")]
+impl SpNotification {
+    /// Returns the subscription to which this notification belongs.
+    pub fn subscription(&self) -> &response::SpSubscribeResp {
+        &self.param_0
+    }
+
+    /// Returns historical scan progress from `0.0` through `1.0`.
     ///
     /// A value of `1.0` indicates that the scan is up to date.
-    pub progress: f32,
+    pub fn progress(&self) -> f32 {
+        self.param_1
+    }
 
-    /// Transactions discovered by the scan.
+    /// Returns the transactions discovered by the scan.
     ///
     /// Confirmed transactions are ordered by block height.
-    pub history: Vec<response::TxTweak>,
+    pub fn history(&self) -> &[response::TxTweak] {
+        &self.param_2
+    }
 }
