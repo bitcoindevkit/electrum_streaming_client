@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Types representing structured responses returned by the Electrum server.
 //!
 //! This module defines deserializable Rust types that correspond to the return values of various
