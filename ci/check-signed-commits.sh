@@ -16,7 +16,8 @@ if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ]; then
     exit 1
 fi
 
-COMMIT_SIGNATURES=$(git log --format="%H %G?" "${BASE_SHA}..${HEAD_SHA}" --)
+# An empty allowed-signers file lets git detect SSH signatures without trusting any key.
+COMMIT_SIGNATURES=$(git -c gpg.ssh.allowedSignersFile=/dev/null log --format="%H %G?" "${BASE_SHA}..${HEAD_SHA}" --)
 
 UNSIGNED=0
 while IFS=' ' read -r commit status; do
