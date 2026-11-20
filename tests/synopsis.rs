@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use async_std::{net::TcpStream, stream::StreamExt};
 use bdk_testenv::{anyhow, bitcoincore_rpc::RpcApi, TestEnv};
 use bitcoin::Amount;
 use electrum_streaming_client::{
@@ -9,8 +8,9 @@ use electrum_streaming_client::{
 use futures::{
     executor::{block_on, ThreadPool},
     task::SpawnExt,
-    AsyncReadExt, FutureExt,
+    AsyncReadExt, FutureExt, StreamExt,
 };
+use smol::net::TcpStream;
 
 #[test]
 fn synopsis() -> anyhow::Result<()> {
