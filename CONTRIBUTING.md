@@ -49,7 +49,7 @@ hesitate to split it into multiple small, focused PRs.
 The Minimum Supported Rust Version is **1.75.0** (enforced by our CI).
 
 Commits should cover both the issue fixed and the solution's rationale.
-These [guidelines](https://chris.beams.io/posts/git-commit/) should be kept in mind. Commit messages follow the ["Conventional Commits 1.0.0"](https://www.conventionalcommits.org/en/v1.0.0/) to make commit histories easier to read by humans and automated tools. All commits must be [GPG signed](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
+These [guidelines](https://chris.beams.io/posts/git-commit/) should be kept in mind. Commit messages follow the ["Conventional Commits 1.0.0"](https://www.conventionalcommits.org/en/v1.0.0/) to make commit histories easier to read by humans and automated tools. All commits must be [signed (GPG or SSH)](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
 CI checks signature presence on every pull request commit (`ci/check-signed-commits.sh`).
 
 To facilitate communication with other contributors, the project is making use
@@ -63,7 +63,7 @@ Pull Request Checklist
 
 By opening a pull request, you are confirming that:
 
-- All commits are [GPG signed](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
+- All commits are [signed (GPG or SSH)](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits).
 - The PR description links to the issue it solves, if one exists.
 - `just pre-push` (alias `just p`) was run before pushing. This checks
   formatting, checks that it compiles, runs clippy, runs tests, and checks docs.
