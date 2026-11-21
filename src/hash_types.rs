@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use bitcoin::hashes::{Hash, HashEngine};
 
 bitcoin::hashes::hash_newtype! {

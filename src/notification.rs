@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Defines parsed Electrum server notifications.
 //!
 //! This module provides the [`Notification`] enum, which categorizes incoming Electrum
