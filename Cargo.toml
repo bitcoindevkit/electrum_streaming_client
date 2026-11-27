@@ -24,7 +24,7 @@ tokio = ["dep:tokio", "tokio-util"]
 frigate = []
 
 [dev-dependencies]
-async-std = "1.13.0"
+smol = "2.0.2"
 bdk_testenv = "0.11"
 futures = { version = "0.3", features = ["thread-pool"] }
 tokio = { version = "1.44.2", features = ["full"] }
