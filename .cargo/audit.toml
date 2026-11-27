@@ -1,0 +1,37 @@
+# Temporary exceptions for the test dependency tree. bdk_testenv pulls in
+# zip and minreq through electrsd 0.28 and bitcoind for binary downloads.
+# Re-audit these exceptions when bdk_testenv upgrades electrsd
+# (https://github.com/bitcoindevkit/bdk/pull/2454).
+[advisories]
+ignore = [
+    # zip 0.6
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+    "RUSTSEC-2026-0429",
+    "RUSTSEC-2026-0545",
+    "RUSTSEC-2026-0548",
+
+    # zstd-safe 5 through zip
+    "RUSTSEC-2026-0395",
+    "RUSTSEC-2026-0397",
+    "RUSTSEC-2026-0399",
+    "RUSTSEC-2026-0400",
+    "RUSTSEC-2026-0401",
+    "RUSTSEC-2026-0402",
+    "RUSTSEC-2026-0403",
+    "RUSTSEC-2026-0404",
+    "RUSTSEC-2026-0406",
+
+    # rustls, rustls-webpki, and webpki-roots through minreq
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    "RUSTSEC-2026-0346",
+    "RUSTSEC-2026-0349",
+    "RUSTSEC-2026-0381",
+    "RUSTSEC-2026-0382",
+
+    # pin-utils through nix 0.25 and async-std. electrsd 0.44 upgrades nix.
+    "RUSTSEC-2026-0441",
+]
