@@ -820,14 +820,59 @@ impl Request for Ping {
     }
 }
 
-/// A request to subscribe to payment outputs belonging to the provided keys
+/// The optional starting point for a Silent Payments subscription.
+///
+/// A point is interpreted by Frigate as either a block height or a Unix timestamp (values above
+/// `500_000_000` are timestamps). A range is inclusive at both ends, accepts block heights only,
+/// and is encoded using the `"FROM-TO"` form defined by the Frigate protocol.
+#[cfg(feature = "frigate")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SpSubscribeStart {
+    /// Start at a block height or Unix timestamp.
+    Point(u64),
+
+    /// Scan the closed block-height range from `from` through `to`.
+    Range { from: u32, to: u32 },
+}
+
+#[cfg(feature = "frigate")]
+impl SpSubscribeStart {
+    /// Constructs a single-height or timestamp starting point.
+    pub const fn point(value: u64) -> Self {
+        Self::Point(value)
+    }
+
+    /// Constructs an inclusive block-height range.
+    pub const fn range(from: u32, to: u32) -> Self {
+        Self::Range { from, to }
+    }
+}
+
+#[cfg(feature = "frigate")]
+impl From<SpSubscribeStart> for serde_json::Value {
+    fn from(start: SpSubscribeStart) -> Self {
+        match start {
+            SpSubscribeStart::Point(value) => value.into(),
+            SpSubscribeStart::Range { from, to } => format!("{from}-{to}").into(),
+        }
+    }
+}
+
+#[cfg(feature = "frigate")]
+impl From<u64> for SpSubscribeStart {
+    fn from(value: u64) -> Self {
+        Self::Point(value)
+    }
+}
+
+/// A request to subscribe to payment outputs belonging to the provided keys.
 ///
 /// This corresponds to the `"blockchain.silentpayments.subscribe"` Frigate Electrum RPC method.
-/// The server returns the subscribed silent payment address.
+/// The server returns the subscription details, and subsequently emits scan notifications.
 ///
-/// Supported Frigate version: <= 1.4.1
+/// Supported Frigate version: >= 1.5.0, <= 1.6.1
 ///
-/// See: <https://github.com/sparrowwallet/frigate/tree/1.4.1#blockchainsilentpaymentssubscribe>
+/// See: <https://github.com/sparrowwallet/frigate/tree/1.6.1#blockchainsilentpaymentssubscribe>
 #[cfg(feature = "frigate")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpSubscribe {
@@ -837,10 +882,8 @@ pub struct SpSubscribe {
     /// Public spend key paired with the scan key for this subscription.
     pub spend_pub_key: bitcoin::secp256k1::PublicKey,
 
-    /// Optional block height or timestamp from which to start scanning.
-    ///
-    /// Values above 500,000,000 are treated as seconds since the Unix epoch.
-    pub start_height: Option<u32>,
+    /// Optional block height, timestamp, or closed range from which to start scanning.
+    pub start: Option<SpSubscribeStart>,
 
     /// Optional positive silent payment labels to scan for.
     ///
@@ -850,7 +893,7 @@ pub struct SpSubscribe {
 
 #[cfg(feature = "frigate")]
 impl Request for SpSubscribe {
-    type Response = String;
+    type Response = response::SpSubscribeResp;
 
     fn to_method_and_params(&self) -> MethodAndParams {
         let mut params = vec![
@@ -858,12 +901,11 @@ impl Request for SpSubscribe {
             serde_json::json!(self.spend_pub_key),
         ];
 
-        match (self.start_height, &self.labels) {
-            (Some(start_height), Some(labels)) => {
-                params.extend([start_height.into(), labels.clone().into()]);
+        match (self.start, &self.labels) {
+            (Some(start), Some(labels)) => {
+                params.extend([start.into(), labels.clone().into()]);
             }
-
-            (Some(start_height), None) => params.push(start_height.into()),
+            (Some(start), None) => params.extend([start.into()]),
             (None, Some(labels)) => {
                 params.extend([serde_json::Value::Null, labels.clone().into()]);
             }
@@ -880,9 +922,9 @@ impl Request for SpSubscribe {
 /// It returns the silent payment address that has been unsubscribed. This should cancel any scans
 /// that may be currently running for this address.
 ///
-/// Supported Frigate version <= 1.4.1
+/// Supported Frigate version: >= 1.5.0, <= 1.6.1
 ///
-/// See: <https://github.com/sparrowwallet/frigate/tree/1.4.1#blockchainsilentpaymentsunsubscribe>
+/// See: <https://github.com/sparrowwallet/frigate/tree/1.6.1#blockchainsilentpaymentsunsubscribe>
 #[cfg(feature = "frigate")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SpUnsubscribe {
@@ -905,5 +947,59 @@ impl Request for SpUnsubscribe {
                 serde_json::json!(self.spend_pub_key),
             ],
         )
+    }
+}
+
+#[cfg(all(test, feature = "frigate"))]
+mod tests {
+    use super::{Request, SpSubscribe, SpSubscribeStart};
+    use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+
+    fn keys() -> (SecretKey, PublicKey) {
+        let scan_priv_key = SecretKey::from_slice(&[1; 32]).unwrap();
+        let spend_pub_key = PublicKey::from_secret_key(&Secp256k1::new(), &scan_priv_key);
+        (scan_priv_key, spend_pub_key)
+    }
+
+    #[test]
+    fn converts_unsuffixed_start_literal() {
+        let start: SpSubscribeStart = 850_000.into();
+
+        assert_eq!(start, SpSubscribeStart::Point(850_000));
+    }
+
+    #[test]
+    fn encodes_closed_block_height_range() {
+        let (scan_priv_key, spend_pub_key) = keys();
+        let request = SpSubscribe {
+            scan_priv_key,
+            spend_pub_key,
+            start: Some(SpSubscribeStart::range(100, 200)),
+            labels: Some(vec![1, 2]),
+        };
+
+        let (method, params) = request.to_method_and_params();
+
+        assert_eq!(method, "blockchain.silentpayments.subscribe");
+        assert_eq!(params.len(), 4);
+        assert_eq!(params[2], serde_json::json!("100-200"));
+        assert_eq!(params[3], serde_json::json!([1, 2]));
+    }
+
+    #[test]
+    fn encodes_null_start_placeholder_before_labels() {
+        let (scan_priv_key, spend_pub_key) = keys();
+        let request = SpSubscribe {
+            scan_priv_key,
+            spend_pub_key,
+            start: None,
+            labels: Some(vec![0, 1]),
+        };
+
+        let (_, params) = request.to_method_and_params();
+
+        assert_eq!(params.len(), 4);
+        assert_eq!(params[2], serde_json::Value::Null);
+        assert_eq!(params[3], serde_json::json!([0, 1]));
     }
 }

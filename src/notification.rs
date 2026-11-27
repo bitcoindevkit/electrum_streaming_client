@@ -132,3 +132,42 @@ pub struct SpNotification {
     /// Confirmed transactions are ordered by block height.
     pub history: Vec<response::TxTweak>,
 }
+
+#[cfg(all(test, feature = "frigate"))]
+mod tests {
+    use super::SpNotification;
+
+    fn subscription() -> serde_json::Value {
+        serde_json::json!({
+            "address": "tsp1test",
+            "labels": [0],
+            "start_height": 840_000
+        })
+    }
+
+    #[test]
+    fn deserializes_named_sp_notification() {
+        let value = serde_json::json!({
+            "subscription": subscription(),
+            "progress": 0.5,
+            "history": []
+        });
+
+        let notification: SpNotification = serde_json::from_value(value).unwrap();
+
+        assert_eq!(notification.subscription.address, "tsp1test");
+        assert_eq!(notification.progress, 0.5);
+        assert!(notification.history.is_empty());
+    }
+
+    #[test]
+    fn deserializes_positional_sp_notification() {
+        let value = serde_json::json!([subscription(), 0.75, []]);
+
+        let notification: SpNotification = serde_json::from_value(value).unwrap();
+
+        assert_eq!(notification.subscription.address, "tsp1test");
+        assert_eq!(notification.progress, 0.75);
+        assert!(notification.history.is_empty());
+    }
+}

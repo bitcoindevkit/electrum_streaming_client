@@ -386,6 +386,9 @@ pub struct ServerFeatures {
 
     /// The pruning limit.
     pub pruning: Option<u32>,
+
+    /// Silent Payments protocol versions supported by the server.
+    pub silent_payments: Option<Vec<u32>>,
 }
 
 /// Server host values.
@@ -399,7 +402,7 @@ pub struct ServerHostValues {
 
 /// Response entry from the `"blockchain.silentpayments.subscribe"` method.
 #[cfg(feature = "frigate")]
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
 pub struct SpSubscribeResp {
     /// The silent payment address that has been subscribed.
     pub address: String,
@@ -435,5 +438,25 @@ mod tests {
             serde_json::from_str(r#"{"confirmed":0,"unconfirmed":-100}"#).unwrap();
 
         assert_eq!(response.unconfirmed, SignedAmount::from_sat(-100));
+    }
+
+    #[cfg(feature = "frigate")]
+    #[test]
+    fn deserializes_silent_payment_subscription_response() {
+        let response: SpSubscribeResp = serde_json::from_value(serde_json::json!({
+            "address": "tsp1test",
+            "labels": [0, 1],
+            "start_height": 840_000
+        }))
+        .unwrap();
+
+        assert_eq!(
+            response,
+            SpSubscribeResp {
+                address: "tsp1test".into(),
+                labels: vec![0, 1],
+                start_height: 840_000,
+            }
+        );
     }
 }
