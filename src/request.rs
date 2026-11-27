@@ -952,12 +952,54 @@ impl Request for SpUnsubscribe {
 
 #[cfg(all(test, feature = "frigate"))]
 mod tests {
-    use super::SpSubscribeStart;
+    use super::{Request, SpSubscribe, SpSubscribeStart};
+    use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+
+    fn keys() -> (SecretKey, PublicKey) {
+        let scan_priv_key = SecretKey::from_slice(&[1; 32]).unwrap();
+        let spend_pub_key = PublicKey::from_secret_key(&Secp256k1::new(), &scan_priv_key);
+        (scan_priv_key, spend_pub_key)
+    }
 
     #[test]
     fn converts_unsuffixed_start_literal() {
         let start: SpSubscribeStart = 850_000.into();
 
         assert_eq!(start, SpSubscribeStart::Point(850_000));
+    }
+
+    #[test]
+    fn encodes_closed_block_height_range() {
+        let (scan_priv_key, spend_pub_key) = keys();
+        let request = SpSubscribe {
+            scan_priv_key,
+            spend_pub_key,
+            start: Some(SpSubscribeStart::range(100, 200)),
+            labels: Some(vec![1, 2]),
+        };
+
+        let (method, params) = request.to_method_and_params();
+
+        assert_eq!(method, "blockchain.silentpayments.subscribe");
+        assert_eq!(params.len(), 4);
+        assert_eq!(params[2], serde_json::json!("100-200"));
+        assert_eq!(params[3], serde_json::json!([1, 2]));
+    }
+
+    #[test]
+    fn encodes_null_start_placeholder_before_labels() {
+        let (scan_priv_key, spend_pub_key) = keys();
+        let request = SpSubscribe {
+            scan_priv_key,
+            spend_pub_key,
+            start: None,
+            labels: Some(vec![0, 1]),
+        };
+
+        let (_, params) = request.to_method_and_params();
+
+        assert_eq!(params.len(), 4);
+        assert_eq!(params[2], serde_json::Value::Null);
+        assert_eq!(params[3], serde_json::json!([0, 1]));
     }
 }
