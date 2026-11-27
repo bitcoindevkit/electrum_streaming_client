@@ -1,10 +1,10 @@
 use bitcoin::{
-    consensus::{deserialize_partial, encode::deserialize_hex},
+    consensus::{deserialize_partial, encode::deserialize_hex, Encodable},
     hex::FromHex,
 };
 use serde::{
     de::{Error, Unexpected},
-    Deserialize, Deserializer,
+    Deserialize, Deserializer, Serialize, Serializer,
 };
 use serde_json::Value;
 
@@ -17,6 +17,14 @@ where
 {
     let hex_str = String::deserialize(deserializer)?;
     deserialize_hex(&hex_str).map_err(serde::de::Error::custom)
+}
+
+pub fn to_consensus_hex<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    T: Encodable,
+    S: Serializer,
+{
+    bitcoin::consensus::encode::serialize_hex(value).serialize(serializer)
 }
 
 /// Deserializes headers from either:
@@ -59,6 +67,15 @@ where
     }
 }
 
+/// Serializes headers in the v1.6 format: an array of individual hex strings.
+pub fn headers_to_hex_list<T, S>(values: &[T], serializer: S) -> Result<S::Ok, S::Error>
+where
+    T: Encodable,
+    S: Serializer,
+{
+    serializer.collect_seq(values.iter().map(bitcoin::consensus::encode::serialize_hex))
+}
+
 fn feerate_from_btc_per_kb_f32<E: Error>(btc_per_kvb: f32) -> Result<bitcoin::FeeRate, E> {
     if btc_per_kvb.is_sign_negative() {
         return Err(E::custom("expected non-negative fee rate in BTC/kvB"));
@@ -75,6 +92,17 @@ where
     feerate_from_btc_per_kb_f32(f32::deserialize(deserializer)?)
 }
 
+/// [`bitcoin::FeeRate`] → BTC/kvB.
+pub fn feerate_to_btc_per_kb<S>(
+    fee_rate: &bitcoin::FeeRate,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    (fee_rate.to_sat_per_kwu() as f32 / (100_000_000.0 / 4.0)).serialize(serializer)
+}
+
 /// BTC/kvB → [`bitcoin::FeeRate`]; negative → `None`.
 pub fn feerate_opt_from_btc_per_kb<'de, D>(
     deserializer: D,
@@ -89,6 +117,21 @@ where
     feerate_from_btc_per_kb_f32(btc_per_kvb).map(Some)
 }
 
+/// The Electrum API signals "no estimate available" with a negative number, so [`None`] is written
+/// back out as `-1.0`.
+pub fn feerate_opt_to_btc_per_kb<S>(
+    fee_rate: &Option<bitcoin::FeeRate>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match fee_rate {
+        Some(fee_rate) => feerate_to_btc_per_kb(fee_rate, serializer),
+        None => (-1.0_f32).serialize(serializer),
+    }
+}
+
 pub fn feerate_from_sat_per_byte<'de, D>(deserializer: D) -> Result<bitcoin::FeeRate, D::Error>
 where
     D: Deserializer<'de>,
@@ -96,6 +139,17 @@ where
     let sat_per_vb = f32::deserialize(deserializer)?;
     let sat_per_kwu = sat_per_vb * (1000.0 / 4.0);
     Ok(bitcoin::FeeRate::from_sat_per_kwu(sat_per_kwu as _))
+}
+
+pub fn feerate_to_sat_per_byte<S>(
+    fee_rate: &bitcoin::FeeRate,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let sat_per_vb = fee_rate.to_sat_per_kwu() as f32 / (1000.0 / 4.0);
+    sat_per_vb.serialize(serializer)
 }
 
 pub fn weight_from_vb<'de, D>(deserializer: D) -> Result<bitcoin::Weight, D::Error>
@@ -107,6 +161,13 @@ where
         serde_json::Error::custom("overflow: vb value cannot fit in to WU"),
     ))?;
     Ok(weight)
+}
+
+pub fn weight_to_vb<S>(weight: &bitcoin::Weight, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    weight.to_vbytes_floor().serialize(serializer)
 }
 
 pub fn all_inputs_confirmed_bool_from_height<'de, D>(deserializer: D) -> Result<bool, D::Error>
@@ -121,6 +182,18 @@ where
             &"0 or -1",
         ))),
     }
+}
+
+/// Writes back the Electrum `height` field: `0` when all inputs are confirmed, `-1` otherwise.
+pub fn all_inputs_confirmed_bool_to_height<S>(
+    all_inputs_confirmed: &bool,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let height: i64 = if *all_inputs_confirmed { 0 } else { -1 };
+    height.serialize(serializer)
 }
 
 pub fn result<'de, D>(deserializer: D) -> Result<Result<Value, Value>, D::Error>
