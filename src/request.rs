@@ -823,16 +823,16 @@ impl Request for Ping {
 /// The optional starting point for a Silent Payments subscription.
 ///
 /// A point is interpreted by Frigate as either a block height or a Unix timestamp (values above
-/// `500_000_000` are timestamps). A range is inclusive at both ends and is encoded using the
-/// `"FROM-TO"` form defined by the Frigate protocol.
+/// `500_000_000` are timestamps). A range is inclusive at both ends, accepts block heights only,
+/// and is encoded using the `"FROM-TO"` form defined by the Frigate protocol.
 #[cfg(feature = "frigate")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpSubscribeStart {
     /// Start at a block height or Unix timestamp.
     Point(u64),
 
-    /// Scan the closed range from `from` through `to`.
-    Range { from: u64, to: u64 },
+    /// Scan the closed block-height range from `from` through `to`.
+    Range { from: u32, to: u32 },
 }
 
 #[cfg(feature = "frigate")]
@@ -842,8 +842,8 @@ impl SpSubscribeStart {
         Self::Point(value)
     }
 
-    /// Constructs an inclusive block-height or timestamp range.
-    pub const fn range(from: u64, to: u64) -> Self {
+    /// Constructs an inclusive block-height range.
+    pub const fn range(from: u32, to: u32) -> Self {
         Self::Range { from, to }
     }
 }
@@ -862,13 +862,6 @@ impl From<SpSubscribeStart> for serde_json::Value {
 impl From<u64> for SpSubscribeStart {
     fn from(value: u64) -> Self {
         Self::Point(value)
-    }
-}
-
-#[cfg(feature = "frigate")]
-impl From<u32> for SpSubscribeStart {
-    fn from(value: u32) -> Self {
-        Self::Point(value.into())
     }
 }
 
@@ -954,5 +947,17 @@ impl Request for SpUnsubscribe {
                 serde_json::json!(self.spend_pub_key),
             ],
         )
+    }
+}
+
+#[cfg(all(test, feature = "frigate"))]
+mod tests {
+    use super::SpSubscribeStart;
+
+    #[test]
+    fn converts_unsuffixed_start_literal() {
+        let start: SpSubscribeStart = 850_000.into();
+
+        assert_eq!(start, SpSubscribeStart::Point(850_000));
     }
 }
